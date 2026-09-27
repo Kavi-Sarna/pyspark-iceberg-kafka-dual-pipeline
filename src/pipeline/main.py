@@ -6,23 +6,29 @@ Builds a SparkSession, reports what it is running on, and stops cleanly.
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
-from pyspark import SparkConf
 from pyspark.sql import SparkSession
 
 log = logging.getLogger("pipeline")
 
 
-def build_session(app_name: str = "pipeline") -> SparkSession:
-    """Build a session, defaulting to local[*] only when no master is configured.
+def launcher_set_master() -> bool:
+    """True when spark-submit has already chosen the master.
 
-    spark-submit sets spark.master in the conf; overriding it here would ignore
-    whatever cluster the job was submitted to.
+    spark-submit starts the JVM first and hands the Python process its py4j
+    gateway port. SparkConf cannot be asked instead: with no JVM yet it falls
+    back to an empty dict, so it reports no master even under spark-submit.
     """
-    builder = SparkSession.builder.appName(app_name)
-    if not SparkConf().contains("spark.master"):
-        builder = builder.master("local[*]")
+    return "PYSPARK_GATEWAY_PORT" in os.environ
+
+
+def build_session(app_name: str = "pipeline") -> SparkSession:
+    """Build a session, defaulting to local[*] only when nothing else decides."""
+    builder = SparkSession.builder
+    if not launcher_set_master():
+        builder = builder.appName(app_name).master("local[*]")
     return builder.getOrCreate()
 
 
