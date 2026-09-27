@@ -1,0 +1,41 @@
+[project]
+name = "pipeline"
+version = "0.1.0"
+description = "Shipments LEFT JOIN deliveries, in batch and streaming mode, off one shared core."
+readme = "README.md"
+authors = [
+    { name = "Kavi Sarna", email = "sarnakavi94@gmail.com" }
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pyspark==4.0.4"
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8",
+    "ruff>=0.6"
+]
+
+[project.scripts]
+pipeline = "pipeline.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.8,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
