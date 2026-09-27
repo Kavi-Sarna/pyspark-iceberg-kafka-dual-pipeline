@@ -1,12 +1,14 @@
 # pyspark-iceberg-kafka-dual-pipeline
 
+[![Open in Github Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Kavi-Sarna/pyspark-iceberg-kafka-dual-pipeline)
+
 Dual-mode Pyspark pipeline - one pure join core running in both batch over Apache Iceberg and streaming over Kafka.
 
 One join, written ince, running two ways: as a **batch** job over Apache Iceberg and as a **streaming** job over Kafka - off the same pure core.
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 4 - running on a cluster.** A SparkSession builds, reports itself and stops; the app ships as an image on the official Spark runtime; and `make smoke` submits it to a real Spark master and asserts the master recorded it. None of the pipeline below exists yet. 
+> **Status: PR 4 - running on a cluster.** A SparkSession builds, reports itself and stops; the app ships as an image on the official Spark runtime; and `make smoke` submits it to a real Spark master and asserts the master recorded it. PR 4.1 adds a one-click Codespaces demo. None of the pipeline below exists yet. 
 > 
 > See [Status](#status).
 
@@ -126,6 +128,20 @@ Every service runs the image this repo builds, not a stock Spark image, so the c
 `make smoke` is the check behind *`main` is always runnable*: it asserts the job reported the cluster master, and that the master itself recorded a completed application. Exit zero alone would pass even if the job quitely ran locally.
 
 
+## Running it without installing anything 
+
+Step by step, including how to share a live URL: [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md).
+
+Click the badge at the top. Github builds a codespace, installs a JDK and `uv`, builds the image and starts the cluster, and forwards the Spark UIs - no Docker, no JDK and no clone on your machine.
+
+The first create takes several minutes; a resume takes seconds. A codespace stops itself after 30 minutes idle and burns no compute while stopped. On the free tier a 2-core machine is about 60 wall-clock hours a month.
+
+Ports are private to you by default. To show someone, set port 8080 to **Public** in the Ports panel for as long as the demo lasts. The Spark UIs have no authentication, so that URL is open to anyone who has it.
+
+`.devcontainer/on-create.sh` does the one-off build and 
+`.devcontainer/post-start.sh` brings the cluster up on every start, including after an idle stop - a create-only hook would leave the second visit dead.
+
+
 ## Design rules
 
 Three contraints shape every PR, and they are the reason the ladder is 18 steps rather than three.
@@ -144,6 +160,7 @@ ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
 ci/smoke.sh                 end-to-end: submit to the cluster and assert 
 docker/compose.yaml         local cluster: master, worker, History Server
+.devcontainer/              one-click Codespace demo, cluster up on start
 .github/workflows/          ci.yml calls run.sh; scan.yml schedules scan.sh
 Makefile                    thin wrapper; pins the environment
 docker/Dockerfile           multi-stage image on the official Spark runtime
@@ -154,9 +171,10 @@ docs/                       per-PR walkthroughs
 
 ## Docs
 
-- [`docs/pr-01-walkthrough.md`](docs/pr-01-walkthrough.md) - build PR 1 yourself, step by step
-- [`docs/pr-02-walkthrough.md`](docs/pr-02-walkthrough.md) - CI, the Makefile, and pinning the environment.
-- [`docs/pr-03-walkthrough.md`](docs/pr-03-walkthrough.md) - the container image, and the Python version clash at its center
-- [`docs/pr-04-walkthrough.md`](docs/pr-04-walkthrough.md) - a real cluster, and the guard that never fired
-- [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps
-- [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key
+- [`docs/pr-01-walkthrough.md`](docs/pr-01-walkthrough.md) - build PR 1 yourself, step by step 
+- [`docs/pr-02-walkthrough.md`](docs/pr-02-walkthrough.md) - CI, the Makefile, and pinning the environment 
+- [`docs/pr-03-walkthrough.md`](docs/pr-03-walkthrough.md) - the container image, and the Python version clash at its center 
+- [`docs/pr-04-walkthrough.md`](docs/pr-04-walkthrough.md) - a real cluster, and the guard that never fired 
+- [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md) - Codespaces setup, and sharing a live demo URL 
+- [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
+- [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

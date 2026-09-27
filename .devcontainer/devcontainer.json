@@ -1,0 +1,57 @@
+{
+    "name": "pyspark-iceberg-kafka-dual-pipeline",
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+
+    // Java because Spark runs on the JVM even though this is a Python project,
+    // Python only to bootstrap uv, and docker-in-docker to run the Compose stack.
+    "features": {
+        "ghcr.io/devcontainers/features/java:1": {
+            "version": "21",
+            "jdkDistro": "tem"
+        },
+        "ghcr.io/devcontainers/features/python:1": {
+            "version": "3.12"
+        },
+        "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+    },
+
+    // The minimum that runs the stack. Codespaces bills core-hours at the core
+    // count, so 2 cores is 60 free wall-clock hours a month against 30 on 4.
+    // Pick a 4-core machine at creation if the cluster feels sluggish.
+    "hostRequirements": {
+        "cpus": 2,
+        "memory": "8gb"
+    },
+
+    "forwardPorts": [8080, 8081, 18080, 4040],
+
+    // Ports are private by default. To show someone, set a port to Public in the 
+    // Ports panel for the duration - the Spark UIs have no authentication, so a 
+    // public port is an open URL for as long as the codespace runs.
+    "portsAttributes": {
+        "8080": { "label": "Spark master UI", "onAutoForward": "notify" },
+        "8081": { "label": "Spark worker UI", "onAutoForward": "silent" },
+        "18080": { "label": "Spark History Server UI", "onAutoForward": "silent" },
+        "4040": { "label": "Spark driver UI (only while a job runs)", "onAutoForward": "silent" }
+    },
+
+    // Split deliberately: onCreate is the slow one-off build, postStart runs on 
+    // every resume. A codespace stops after 30 minutes idle, so a create-only
+    // hook would leave you with a dead cluster the second time you open it.
+    "onCreateCommand": ".devcontainer/on-create.sh",
+    "postStartCommand": ".devcontainer/post-start.sh",
+    "waitFor": "onCreateCommand",
+
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "charliermarsh.ruff",
+                "ms-python.python",
+                "ms-python.mypy-type-checker"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python"
+            }
+        }
+    }
+}
