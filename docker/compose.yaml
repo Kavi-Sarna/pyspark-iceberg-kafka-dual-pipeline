@@ -1,0 +1,102 @@
+name: pipeline
+
+# Every service runs the image this repo builds, not a stock Spark image. That
+# is the point of the exercise: the cluster executes your code and your Python,
+# so a dependency missing from the image fails here rather than in production.
+x-image: &image
+  image: pipeline:local
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile
+
+services:
+  # spark-class runs in the foregroun, which is what a container wants. The 
+  # sbin/start-*.sh scripts daemonize and the container would exit immediately.
+  spark-master:
+    <<: *image
+    container_name: spark-master
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+    ports:
+      - "8080:8080"     # master UI
+      - "7077:7077"     # submit
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+  
+  spark-worker:
+    <<: *image
+    container_name: spark-worker
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+    environment:
+      SPARK_WORKER_CORES: "1"
+      SPARK_WORKER_MEMORY: "1g"
+    depends_on:
+      spark-master:
+        condition: service_healthy
+    ports:
+      - "8081:8081"     # worker UI
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+  
+  # Reads the event logs the driver writes. Without it a finished application
+  # disappears from the master UI and you have no way to inspect what it did.
+  spark-history:
+    <<: *image
+    container_name: spark-history
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.history.HistoryServer
+    environment:
+      SPARK_HISTORY_OPTS: >-
+        -Dspark.history.fs.logDirectory=/tmp/spark-events
+    volumes:
+      - spark-events:/tmp/spark-events
+    ports:
+      - "18080:18080"     # history UI
+    
+  # Started explicitly by `make submit`, never by `compose up`.
+  submit:
+    <<: *image
+    container_name: submit
+    profiles: ["submit"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker:
+        condition: service_healthy
+    volumes:
+      - spark-events:/tmp/spark-events
+    # spark.driver.host: executors dial the driver back, so it must advertise an 
+    # address they can reach. `compose run` does not alias the service name, so
+    # use the container's own IP on the project network.
+    # 
+    # The entry file is asked of the installed package rather than hardcoded:
+    # --no-editable puts it under site-packages at a python-version-dependent
+    # path, and spark-submit takes a file, not a module.
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        exec /opt/spark/bin/spark-submit
+        --master spark://spark-master:7077
+        --name pipeline-smoke
+        --conf spark.driver.host="$$(hostname -i)"
+        --conf spark.eventLog.enabled=true
+        --conf spark.eventLog.dir=/tmp/spark-events
+        --conf spark.sql.shuffle.partitions=1
+        "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
+
+volumes:
+  spark-events:

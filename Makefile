@@ -78,6 +78,22 @@ image: ## Build the container image
 image-run: image ## Run the app inside the container
 	docker run --rm pipeline:local
 
+up: ## Start the local Spark cluster
+	docker compose -f docker/compose.yaml up --detach --build --wait \
+	  spark-master spark-worker spark-history
+	@echo "master   http://localhost:8080"
+	@echo "worker   http://localhost:8081"
+	@echo "history  http://localhost:18080"
+
+down: ## Stop the cluster and drop its volumes
+	docker compose -f docker/compose.yaml down --volumes --remove-orphans
+
+submit: up ## Submit the app to the running cluster
+	docker compose -f docker/compose.yaml run --rm submit
+
+smoke: ## Bring up a cluster, submit, assert, tear down
+	./ci/smoke.sh
+
 scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
 	./ci/scan.sh
 

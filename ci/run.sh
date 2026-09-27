@@ -42,6 +42,8 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
         || { echo "ERROR: image runs as '${user}', expected 185." >&2; exit 1; }
     [[ "${entry}" == '["/opt/entrypoint.sh"]' ]] \
         || { echo "ERROR: entrypoint is ${entry}, expected /opt/entryppoint.sh." >&2; exit 1; }
+    
+    ./ci/smoke.sh
 elif [[ "${REQUIRE_DOCKER:-0}" == "1" ]]; then
     echo "ERROR: REQUIRE_DOCKER=1 but no Docker daemon is reachable." >&2
     exit 1
