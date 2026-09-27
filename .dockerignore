@@ -1,0 +1,20 @@
+# The build context is uploaded to the daemon before anything runs. Without 
+# this, .venv alone sends several hundred MB on every build - and would then be 
+# copied in, shadowing the interpreter the image actually installs.
+.venv/
+__pycache__/
+*.py[cod]
+
+.git/
+.github/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+docs/
+
+# Local Spark artifacts
+spark-warehouse/
+metastore_db/
+derby.log
+.trivy/

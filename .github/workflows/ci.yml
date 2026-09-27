@@ -26,4 +26,8 @@ jobs:
           cache-depepndency-glob: uv.lock
       
       # One command. Everything it runs is reproducible locally with `make ci`.
+      # REQUIRE_DOCKER makes the image build a hard failure here; locally the 
+      # script skips it with a warning when no daemon is running.
       - run: ./ci/run.sh
+        env:
+          REQUIRE_DOCKER: '1'

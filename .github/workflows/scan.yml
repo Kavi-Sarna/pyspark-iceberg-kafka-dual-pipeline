@@ -1,0 +1,41 @@
+name: scan
+
+# Nightly rather than per-PR. A vulnerability feed changes daily, so gating a 
+# PR on it would fail unchanged diffs for reasons the diff did not cause - and 
+# the base iage here is Apache's, so most findings are not ours to fix.
+# 
+# Two Github behaviors worth knowing: a schedule only fires from the default 
+# branch, and Github disables scheduled workflows in a repository with no 
+# activity for 60 days.
+on:
+  schedule:
+    - cron: '23 19 * * *'  # 19:23 UTC, off the hour to avoid the queue spike
+  workflow_dispatch:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The vulnerability database is large and trivy refreshes it on a timer. 
+      # The key never hits, so restore-keys pulls the most recent one and the 
+      # run saves on updated copy.
+      - uses: actions/cache@v4
+        with:
+          path: .trivy/db
+          key: trivy-db-${{ github.run_id }}
+          restore-keys: trivy-db-
+      
+      - run: ./ci/scan.sh
+        env:
+          SCAN_EXIT_CODE: '1'
+    
+      # Runs even when the step above failed - that is exactly when the report 
+      # is worth reading.
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-report
+          path: .trivy/report.txt
+          if-no-files-found: warn

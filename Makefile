@@ -29,7 +29,12 @@ endif
 export PYSPARK_PYTHON := $(CURDIR)/.venv/bin/python 
 export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 
-.PHONY: help env sync fmt lint types test ci run clean
+# The driver binds to whatever the hostname resolves to, which on a laptop can 
+# be a stale DHCP lease no interface holds any more. Loopback is always right 
+# for local and unit-test runs; a cluster submit sets its own bind address.
+export SPARK_LOCAL_IP := 127.0.0.1
+
+.PHONY: help env sync fmt lint types test ci run image image-run scan clean
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
@@ -44,8 +49,6 @@ env: ## Show and validate the resolved environment
 	  || { echo "ERROR: no JAVA_HOME. Install a JDK 17 or 21."; exit 1; }
 	@test -x "$${JAVA_HOME}/bin/java" \
 	  || { echo "ERROR: JAVA_HOME points at a path that does not exists: $${JAVA_HOME}"; exit 1; }
-	@test -x "$${SPARK_HOME:-}" \
-	  && { echo "ERROR: SPARK_HOME must be unset."; exit 1; } || true
 	@"$${JAVA_HOME}/bin/java" -version 2>&1 | head -1
 
 sync: ## Install dependencies from the lockfile
@@ -69,6 +72,15 @@ ci: ## Run everything CI runs
 run: env ## Run the app
 	uv run pipeline
 
+image: ## Build the container image
+	docker build -f docker/Dockerfile -t pipeline:local .
+
+image-run: image ## Run the app inside the container
+	docker run --rm pipeline:local
+
+scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
+	./ci/scan.sh
+
 clean: ## Remove caches and local Spark artifacts
-	rm -rf .pytest_cache .mypy_cache .ruff_cache spark-warehouse metastore_db derby.log
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy spark-warehouse metastore_db derby.log
 	find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} +
