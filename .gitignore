@@ -221,3 +221,4 @@ __marimo__/
 spark-warehouse/
 metastore_db/
 derby.log
+.trivy/

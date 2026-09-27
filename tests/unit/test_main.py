@@ -1,4 +1,4 @@
-"""PR 1 only proves the toolchain: a session builds, reports itself, and stops."""
+"""The toolchain, not the pipeline: a session builds, reports itself, and stops."""
 
 from __future__ import annotations
 
