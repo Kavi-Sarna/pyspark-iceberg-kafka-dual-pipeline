@@ -1,0 +1,29 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Yes, a Python project needs a JDK: pyspark starts a JVM. Leaving this 
+      # out is the mistake unique to a Python Spark project - it works locally
+      # where a JDK happens to exist, then fails here with a gateway error that 
+      # never mentions Java.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-depepndency-glob: uv.lock
+      
+      # One command. Everything it runs is reproducible locally with `make ci`.
+      - run: ./ci/run.sh

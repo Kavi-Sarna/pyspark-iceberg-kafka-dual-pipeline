@@ -15,4 +15,5 @@ def test_session_builds_and_reports_spark_4() -> None:
 
 def test_main_exits_zero() -> None:
     from pipeline.main import main
+
     assert main() == 0

@@ -16,7 +16,7 @@ log = logging.getLogger("pipeline")
 
 def build_session(app_name: str = "pipeline") -> SparkSession:
     """Build a session, defaulting to local[*] only when no master is configured.
-    
+
     spark-submit sets spark.master in the conf; overriding it here would ignore
     whatever cluster the job was submitted to.
     """

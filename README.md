@@ -6,7 +6,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 1 - skeleton.** A SparkSession builds, reports itself and stops. None of the pipeline below exists yet. 
+> **Status: PR 2 - skeleton and CI.** A SparkSession builds, reports itself and stops, and `make ci` runs the same checks Github Actions does. None of the pipeline below exists yet. 
 > 
 > See [Status](#status).
 
@@ -35,9 +35,9 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Status
 
-| Phase                          | PRs   | State     |
-| ------------------------------ | ----- | --------- |
-| Skeleton on a real cluster     | 1-4   | PR 1 done |
+| Phase                          | PRs   | State        |
+| ------------------------------ | ----- | ------------ |
+| Skeleton on a real cluster     | 1-4   | PRs 1-2 done |
 | Pure core, no I/O              | 5-6   | - |
 | Batch path on Iceberg          | 7-9   | - |
 | Streaming path on Kafka        | 10-13 | - |
@@ -60,21 +60,11 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Quick start
 
-Spark runs on the JVM, so a JDK 17 or 21 is required even though this is a Python project.
+You need a JDK 17 or 21 - Spark runs on the JVM even though this is a Python project - plus [uv](https://docs.astral.sh/uv/). Nothing else: the `pyspark` wheel ships its own Spark distribution.
 
 ```bash
-java -version           # 17 or 21
-echo $JAVA_HOME         # must point at a directory that exists
-echo $SPARK_HOME        # must be EMPTY
-```
-
-`SPARK_HOME` must be unset. The `pyspark` wheel ships its own Spark; if 
-`SPARK_HOME` points at a separate install the JVM loads those jars instead and fails with 
-`Java gateway process exited` or `'JavaPackage' object is not callable`.
-
-```bash
-uv sync
-uv run python -m pipeline.main
+make env           # resolves and validates JAVA_HOME, fails loudly if it can't
+make run
 ```
 
 ```
@@ -87,13 +77,14 @@ INFO pipeline: master   local[*]
 ## Checks
 
 ```bash
-uv run ruff format --check .
-uv run ruff check .
-uv run mypy
-uv run pytest -q
+make ci         # exactly what CI runs
 ```
 
-All four must pass before a merge. PR 2 collapses them into `./ci/run.sh` plus a `Makefile` that pins `JAVA_HOME` and unsets `SPARK_HOME`, so the job stops depending on the shell it is run from.
+`ci/run.sh` is the single source of truth: lockfile check, format, lint, types, tests. Github Actions calls that one script and nothing else, so any CI failure reproduces locally with one command.
+
+Individually: `make fmt`, `make lint`, `make types`, `make test`. `make help` lists everything, `make env` shows and validates the resolved environment.
+
+The `Makefile` pins `JAVA_HOME`, unexports `SPARK_HOME` and fixes `PYSPARK_PYTHON`, so the job does not inherit whatever your shell happens to hold. That is why `make run` works even when your shell is misconfigured.
 
 
 ## Design rules
@@ -117,5 +108,6 @@ docs/                       per-PR walkthroughs
 ## Docs
 
 - [`docs/pr-01-walkthrough.md`](docs/pr-01-walkthrough.md) - build PR 1 yourself, step by step
+- [`docs/pr-02-walkthrough.md`](docs/pr-02-walkthrough.md) - CI, the Makefile, and pinning the environment.
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key
