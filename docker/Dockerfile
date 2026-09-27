@@ -72,6 +72,10 @@ ENV PATH="/app/.venv/bin:${PATH}" \
     PYSPARK_DRIVER_PYTHON=/app/.venv/bin/python \
     HOME=/tmp
 
+# A named volume mounted here inherits this ownership; created fresh by Docker
+# it would be root-owned and uid 185 could not write event logs.
+RUN mkdir -p /tmp/spark-events && chown 185:185 /tmp/spark-events
+
 # Numeric, so a pod with runAsNonRoot can verify it.
 USER 185
 WORKDIR /app

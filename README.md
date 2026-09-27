@@ -6,7 +6,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 3 - container image.** A SparkSession builds, reports itself and stops; `make ci` runs the same checks Github Actions does; and the app now ships as an image built on the official Spark runtime. None of the pipeline below exists yet. 
+> **Status: PR 4 - running on a cluster.** A SparkSession builds, reports itself and stops; the app ships as an image on the official Spark runtime; and `make smoke` submits it to a real Spark master and asserts the master recorded it. None of the pipeline below exists yet. 
 > 
 > See [Status](#status).
 
@@ -37,7 +37,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 | Phase                          | PRs   | State        |
 | ------------------------------ | ----- | ------------ |
-| Skeleton on a real cluster     | 1-4   | PRs 1-3 done |
+| Skeleton on a real cluster     | 1-4   | **done**     |
 | Pure core, no I/O              | 5-6   | - |
 | Batch path on Iceberg          | 7-9   | - |
 | Streaming path on Kafka        | 10-13 | - |
@@ -105,6 +105,27 @@ Both stages share a base so there is one image to track for vulnerabilities and 
 `ci/scan.sh` scans that image for fixable HIGH or CRITICAL findings. It runs **nightly against `main`**, not on pull requests - a vulnerability fedd changes daily, so gating a PR on it fails unchanged diffs for reasons the diff did not cause, and the base image is Apache's rather than ours to fix. Trigger it by hand from the Actions tab, or run `make scan` locally.
 
 
+## Local cluster
+
+```bash
+make up         # master, worker and History Server, all healthy
+make submit     # spark-submit the app to it
+make down       # stop and drop volumes
+
+make smoke      # all of the above, with assertions, then teardown
+```
+
+|                  |                        |
+| ---------------- | ---------------------- |
+| Master UI        | http://localhost:8080  |
+| Worker UI        | http://localhost:8081  |
+| History Server   | http://localhost:18080 |
+
+Every service runs the image this repo builds, not a stock Spark image, so the cluster executes your code and your Python. A dependency missing from the image fails at the build rather than as a task failure on an executor.
+
+`make smoke` is the check behind *`main` is always runnable*: it asserts the job reported the cluster master, and that the master itself recorded a completed application. Exit zero alone would pass even if the job quitely ran locally.
+
+
 ## Design rules
 
 Three contraints shape every PR, and they are the reason the ladder is 18 steps rather than three.
@@ -121,6 +142,8 @@ src/pipeline/main.py        entry point: build a session, report, stop
 tests/unit/                 no Docker required
 ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
+ci/smoke.sh                 end-to-end: submit to the cluster and assert 
+docker/compose.yaml         local cluster: master, worker, History Server
 .github/workflows/          ci.yml calls run.sh; scan.yml schedules scan.sh
 Makefile                    thin wrapper; pins the environment
 docker/Dockerfile           multi-stage image on the official Spark runtime
@@ -134,5 +157,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-01-walkthrough.md`](docs/pr-01-walkthrough.md) - build PR 1 yourself, step by step
 - [`docs/pr-02-walkthrough.md`](docs/pr-02-walkthrough.md) - CI, the Makefile, and pinning the environment.
 - [`docs/pr-03-walkthrough.md`](docs/pr-03-walkthrough.md) - the container image, and the Python version clash at its center
+- [`docs/pr-04-walkthrough.md`](docs/pr-04-walkthrough.md) - a real cluster, and the guard that never fired
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key
