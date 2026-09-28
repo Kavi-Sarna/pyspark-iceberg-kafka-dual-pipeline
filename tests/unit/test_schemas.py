@@ -1,6 +1,6 @@
 """The schemas are a contract, so assert them field by field.
 
-A test that only checks column names passes while a timestamp silently becomes a 
+A test that only checks column names passes while a timestamp silently becomes a
 string, or while a field that must never be null is declared nullable.
 """
 
@@ -37,7 +37,7 @@ def fields(schema: StructType) -> list[Field]:
             [
                 ("delivery_id", "string", False),
                 ("shipment_id", "string", False),
-                ("delivered_time", "timestamp", False)
+                ("delivered_time", "timestamp", False),
             ],
         ),
         (
@@ -64,11 +64,11 @@ def test_join_key_is_present_on_both_sides() -> None:
 
 def test_left_join_produces_the_declared_output_schema(spark: SparkSession) -> None:
     """JOINED is a claim about what a left join yields. Check it against one.
-    
-    The join itself arrives in the next PR; this asserts the declaration is 
+
+    The join itself arrives in the next PR; this asserts the declaration is
     right, so that implementation has a schema to be measured against.
     """
-    shipments=spark.createDataFrame(
+    shipments = spark.createDataFrame(
         [("shp-1", "carrier-a", datetime(2026, 9, 13, 10, 0))], SHIPMENT
     )
     deliveries = spark.createDataFrame([("dlv-1", "shp-1", datetime(2026, 9, 13, 10, 2))], DELIVERY)
@@ -80,8 +80,8 @@ def test_left_join_produces_the_declared_output_schema(spark: SparkSession) -> N
 
 def test_left_join_relaxes_nullability_only_on_the_right(spark: SparkSession) -> None:
     """Nullability here is a property of the join type, not of the data.
-    
-    Both inputs declare every field non-null and neither row is null, yet the 
+
+    Both inputs declare every field non-null and neither row is null, yet the
     right-hand fields come back nullable from a left join and non-null from an
     inner one.
     """

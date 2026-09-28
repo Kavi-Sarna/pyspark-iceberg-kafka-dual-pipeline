@@ -1,7 +1,7 @@
 """Declared schemas for the two input events and the join output.
 
-Nothing here is inferred. Inference throws on empty input, costs a pass over the 
-data, and makes the schema a function of whatever happened to arrive rather than 
+Nothing here is inferred. Inference throws on empty input, costs a pass over the
+data, and makes the schema a function of whatever happened to arrive rather than
 a contract the job can be held to.
 """
 
@@ -28,7 +28,7 @@ DELIVERY = StructType(
 )
 
 # Right-side fields are nullable here despite DELIVERY declaring them otherwise.
-# A left join null-pads unmatched shipments, which is the row this app exists to 
+# A left join null-pads unmatched shipments, which is the row this app exists to
 # produce.
 JOINED = StructType(
     [
