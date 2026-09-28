@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 4 - running on a cluster.** A SparkSession builds, reports itself and stops; the app ships as an image on the official Spark runtime; and `make smoke` submits it to a real Spark master and asserts the master recorded it. PR 4.1 adds a one-click Codespaces demo. None of the pipeline below exists yet. 
+> **Status: PR 5 - the domain, declared.** The app runs on a real cluster via `make smoke`, ships as an image, and now declares its two events and the join output as explicit schemas with tests that assert them. The join itself does not exist yet.
 > 
 > See [Status](#status).
 
@@ -37,10 +37,10 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Status
 
-| Phase                          | PRs   | State        |
-| ------------------------------ | ----- | ------------ |
-| Skeleton on a real cluster     | 1-4   | **done**     |
-| Pure core, no I/O              | 5-6   | - |
+| Phase                          | PRs   | State         |
+| ------------------------------ | ----- | ------------- |
+| Skeleton on a real cluster     | 1-4   | **done**      |
+| Pure core, no I/O              | 5-6   | **PR 5 done** |
 | Batch path on Iceberg          | 7-9   | - |
 | Streaming path on Kafka        | 10-13 | - |
 | One artifact, two modes        | 14    | - |
@@ -147,7 +147,7 @@ Ports are private to you by default. To show someone, set port 8080 to **Public*
 Three contraints shape every PR, and they are the reason the ladder is 18 steps rather than three.
 
 - **`main` is always runnable.** Every commit builds, passes CI and runs. New code lands inert and is wired in last, so no intermediate state is broken.
-- **Declare every schema, infer nothing.** Inference throws on empty input and silently guesses wrong types on a partial sample. The app must run constantly against an empty stack, which is what the smoke test checks.
+- **Declare every schema, infer nothing.** Inference throws on empty input, costs a pass over the data, and makes the schema a function of whatever arrived rather than a contract. The app must run correctly against an empty stack, which is what the smoke test checks.
 - **`ruff` and `mypy` are not optional.** Python has no compiler, so they do the job a compiler does for free elsewhere: catching breakage before anything runs.
 
 
@@ -155,6 +155,8 @@ Three contraints shape every PR, and they are the reason the ladder is 18 steps 
 
 ```
 src/pipeline/main.py        entry point: build a session, report, stop
+src/pipeline/core/          pure domain logic, no session, no I/O, no config
+tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
@@ -176,5 +178,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-03-walkthrough.md`](docs/pr-03-walkthrough.md) - the container image, and the Python version clash at its center 
 - [`docs/pr-04-walkthrough.md`](docs/pr-04-walkthrough.md) - a real cluster, and the guard that never fired 
 - [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md) - Codespaces setup, and sharing a live demo URL 
+- [`docs/pr-05-walkthrough.md`](docs/pr-05-walkthrough.md) - declared schemas, and why a left join relaxes nullability
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
