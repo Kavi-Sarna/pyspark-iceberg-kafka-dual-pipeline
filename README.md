@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 5 - the domain, declared.** The app runs on a real cluster via `make smoke`, ships as an image, and now declares its two events and the join output as explicit schemas with tests that assert them. The join itself does not exist yet.
+> **Status: PR 6 - the join exists.** The app runs on a real cluster via `make smoke`, ships as an image, declares its schemas, and now has the pure `left_join` at its centre with 21 tests and no Docker needed to run them. No I/O is wired up yet.
 > 
 > See [Status](#status).
 
@@ -40,7 +40,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Phase                          | PRs   | State         |
 | ------------------------------ | ----- | ------------- |
 | Skeleton on a real cluster     | 1-4   | **done**      |
-| Pure core, no I/O              | 5-6   | **PR 5 done** |
+| Pure core, no I/O              | 5-6   | **done** |
 | Batch path on Iceberg          | 7-9   | - |
 | Streaming path on Kafka        | 10-13 | - |
 | One artifact, two modes        | 14    | - |
@@ -155,7 +155,7 @@ Three contraints shape every PR, and they are the reason the ladder is 18 steps 
 
 ```
 src/pipeline/main.py        entry point: build a session, report, stop
-src/pipeline/core/          pure domain logic, no session, no I/O, no config
+src/pipeline/core/          pure domain logic: schema.py, join.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 ci/run.sh                   the pipeline contract - what "green" means
@@ -179,5 +179,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-04-walkthrough.md`](docs/pr-04-walkthrough.md) - a real cluster, and the guard that never fired 
 - [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md) - Codespaces setup, and sharing a live demo URL 
 - [`docs/pr-05-walkthrough.md`](docs/pr-05-walkthrough.md) - declared schemas, and why a left join relaxes nullability
+- [`docs/pr-06-walkthrough.md`](docs/pr-06-walkthrough.md) - the join, the duplicate key column, and the post-filter that becomes an inner join
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

@@ -1,7 +1,12 @@
-"""One SparkSession for the whole test run.
+"""A live SparkSession for any test that needs one.
 
-JVM startup dominates these tests, so a session-scoped fixture is the
-difference between seconds and minutes.
+Deliberately not session-scoped. Spark allows one context per JVM, and the
+tests for main() stop the session they build - a cached fixture would hand
+later tests a stopped object, failing with an AttributeError deep inside
+pyspark rather than anything that names the cause.
+
+getOrCreate returns the active session when there is one and builds a new one
+when the last was stopped, so this stays cheap without going stale.
 """
 
 from __future__ import annotations
@@ -12,8 +17,8 @@ import pytest
 from pyspark.sql import SparkSession
 
 
-@pytest.fixture(scope="session")
-def spark() -> Iterator[SparkSession]:
+@pytest.fixture
+def spark() -> SparkSession:
     session = (
         SparkSession.builder.master("local[1]")
         .appName("pipeline-tests")
@@ -23,5 +28,12 @@ def spark() -> Iterator[SparkSession]:
         .getOrCreate()
     )
     session.sparkContext.setLogLevel("WARN")
-    yield session
-    session.stop()
+    return session
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _stop_session_at_exit() -> Iterator[None]:
+    yield
+    active = SparkSession.getActiveSession()
+    if active is not None:
+        active.stop()
