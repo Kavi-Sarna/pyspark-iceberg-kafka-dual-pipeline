@@ -26,7 +26,7 @@ endif
 
 # Spark launches Python workers with whatever python3 is on PATH. Pin them to
 # this project's interpreter so driver and workers cannot disagree.
-export PYSPARK_PYTHON := $(CURDIR)/.venv/bin/python 
+export PYSPARK_PYTHON := $(CURDIR)/.venv/bin/python
 export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 
 # The driver binds to whatever the hostname resolves to, which on a laptop can 
