@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from pipeline.main import build_session, launcher_set_master
+from pipeline.session import build_session, launcher_set_master
 
 
 def test_session_builds_and_reports_spark_4() -> None:

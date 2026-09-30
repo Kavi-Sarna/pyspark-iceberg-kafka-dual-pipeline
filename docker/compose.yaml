@@ -76,8 +76,17 @@ services:
         condition: service_healthy
       spark-worker:
         condition: service_healthy
+      iceberg-rest:
+        condition: service_healthy
     volumes:
       - spark-events:/tmp/spark-events
+    environment:
+      ICEBERG_WAREHOUSE: s3://warehouse/
+      ICEBERG_URI: http://iceberg-rest:8181
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
     # spark.driver.host: executors dial the driver back, so it must advertise an 
     # address they can reach. `compose run` does not alias the service name, so
     # use the container's own IP on the project network.
@@ -92,11 +101,102 @@ services:
         exec /opt/spark/bin/spark-submit
         --master spark://spark-master:7077
         --name pipeline-smoke
+        --packages org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0,org.apache.iceberg:iceberg-aws-bundle:1.11.0
         --conf spark.driver.host="$$(hostname -i)"
         --conf spark.eventLog.enabled=true
         --conf spark.eventLog.dir=/tmp/spark-events
         --conf spark.sql.shuffle.partitions=1
         "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
 
+
+  # ----------------------- object storage and catalog -----------------------
+  # Upstream minio/minio was deleted from Docker Hub on 2026-09-11 and the OSS 
+  # repo is archived. pgsty/minio is Silo, Pigsty's AGPL fork, which kepps the 
+  # MINIO_* variables and the S3 routes. Pinned by digest: a community fork is 
+  # a supply-chain dependency and should not be able to move under us.
+  minio:
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: pipeline-local
+      MINIO_ROOT_PASSWORD: pipeline-local-secret
+    ports:
+      - "9000:9000"     # S3 API
+      - "9001:9001"     # Console UI
+    volumes:
+      - minio-data:/data
+
+
+  # Creates the bucket and exits. Its retry loop is also how everything else 
+  # waits for MinIO, which avoids a healthcheck that would depend on curl or 
+  # wget being present in an image we do not build.
+  minio-init:
+    image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set local http://minio:9000 pipeline-local pipeline-local-secret;
+        do echo "waiting for minio"; sleep 1; done &&
+        mc mb --ignore-existing local/warehouse &&
+        echo "bucket ready"
+
+
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture:1.10.1@sha256:f7d679d30ac9c640bdeb2c015dff533cd3c8f1c7d491ebcb5d436f9a42db1d6f
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      # CATALOG_* maps onto catalog propoerties: single _ becomes a dot, double 
+      # __ becomes a dash. So CATALOG_IO__IMPL is the io-impl property.
+      # CATALOG_WAREHOUSE: s3://warehouse/
+      # CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      # CATALOG_S3_ENDPOINT: http://minio:9000
+      # CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      # Pass both Iceberg S3FileIO properties and AWS SDK v2 system properties
+      JAVA_TOOL_OPTIONS: >-
+        -Dwarehouse=s3://warehouse/
+        -Dio-impl=org.apache.iceberg.aws.s3.S3FileIO
+        -Ds3.endpoint=http://minio:9000
+        -Ds3.path-style-access=true
+        -Ds3.access-key-id=pipeline-local
+        -Ds3.secret-access-key=pipeline-local-secret
+        -Daws.region=us-east-1
+        -Daws.s3.pathStyleAccess=true
+        -Daws.s3.useArnRegion=false
+      # AWS environment variables
+      # AWS_ACCESS_KEY_ID: pipeline-local
+      # AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      # AWS_REGION: us-east-1
+      # AWS_DEFAULT_REGION: us-east-1
+      # AWS_ENDPOINT_URL: http://minio:9000
+      # AWS_ENDPOINT_URL_S3: http://minio:9000
+      # AWS_EC2_METADATA_DISABLED: "true"
+    ports:
+      - "8181:8181"
+
+
+  # Creates the namespace and tables. Run once, then again whenever a schema 
+  # changes; CREATE TABLE IF NOT EXISTS makes it safe to repeat.
+  bootstrap:
+    <<: *image
+    profiles: ["bootstrap"]
+    depends_on:
+      - iceberg-rest
+    environment:
+      ICEBERG_WAREHOUSE: s3://warehouse/
+      ICEBERG_URI: http://iceberg-rest:8181
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
+      IVY_HOME: /tmp/.ivy2
+      SPARK_SUBMIT_OPTS: "-Divy.home=/tmp/.ivy2"
+    command: ["/app/.venv/bin/python", "-m", "pipeline.bootstrap"]
+
+
 volumes:
+  minio-data:
   spark-events:

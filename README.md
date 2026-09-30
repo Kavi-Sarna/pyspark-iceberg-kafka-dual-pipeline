@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 6 - the join exists.** The app runs on a real cluster via `make smoke`, ships as an image, declares its schemas, and now has the pure `left_join` at its centre with 21 tests and no Docker needed to run them. No I/O is wired up yet.
+> **Status: PR 7 - a catalog to write to.** The pure `left_join` exists and is tested; the local stack now runs object storage and an Iceberg REST catalog, and `make warehouse` creates the tables in a plain directory with no Docker at all. The job still reads and writes nothing.
 > 
 > See [Status](#status).
 
@@ -40,8 +40,8 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Phase                          | PRs   | State         |
 | ------------------------------ | ----- | ------------- |
 | Skeleton on a real cluster     | 1-4   | **done**      |
-| Pure core, no I/O              | 5-6   | **done** |
-| Batch path on Iceberg          | 7-9   | - |
+| Pure core, no I/O              | 5-6   | **done**      |
+| Batch path on Iceberg          | 7-9   | **PR 7 done** |
 | Streaming path on Kafka        | 10-13 | - |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
@@ -50,15 +50,16 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Stack
 
-|              |                                                                   |
-| ------------ | ----------------------------------------------------------------- |
-| Python       | 3.12, managed with `uv`                                           |
-| Spark        | 4.0.4 (the `pyspark` wheel ships the distribution)                |
-| Table format | Apache Iceberg 1.11 - not Spark 4.1, which has no Iceberg runtime |
-| Stream       | Kafka + Confluent Schema Registry, Avro                           |
-| Image        | `apache/spark:4.0.4-python3`, multi-stage, non-root uid 185       |
-| Local stack  | Docker Compose -> `kind` + the Spark Operator                     |
-| Checks       | `ruff`, `mypy --strict`, `pytest`                                 |
+|              |                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------ |
+| Python       | 3.12, managed with `uv`                                                                    |
+| Spark        | 4.0.4 (the `pyspark` wheel ships the distribution)                                         |
+| Table format | Apache Iceberg 1.11 - *not* Spark 4.1, which has no Iceberg runtime                        |
+| Object Store | Silo (`pgsty/minio`), the maintained fork - upstream MinIo was deleted from Docker Hub     |
+| Stream       | Kafka + Confluent Schema Registry, Avro                                                    |
+| Image        | `apache/spark:4.0.4-python3`, multi-stage, non-root uid 185                                |
+| Local stack  | Docker Compose -> `kind` + the Spark Operator                                              |
+| Checks       | `ruff`, `mypy --strict`, `pytest`                                                          |
 
 
 ## Quick start
@@ -117,11 +118,13 @@ make down       # stop and drop volumes
 make smoke      # all of the above, with assertions, then teardown
 ```
 
-|                  |                        |
-| ---------------- | ---------------------- |
-| Master UI        | http://localhost:8080  |
-| Worker UI        | http://localhost:8081  |
-| History Server   | http://localhost:18080 |
+|                           |                           |
+| ------------------------- | ------------------------- |
+| Master UI                 | http://localhost:8080     |
+| MinIO console             | http://localhost:9001     |
+| Iceberg REST catalog      | http://localhost:8181     |
+| Worker UI                 | http://localhost:8081     |
+| History Server            | http://localhost:18080    |
 
 Every service runs the image this repo builds, not a stock Spark image, so the cluster executes your code and your Python. A dependency missing from the image fails at the build rather than as a task failure on an executor.
 
@@ -155,6 +158,8 @@ Three contraints shape every PR, and they are the reason the ladder is 18 steps 
 
 ```
 src/pipeline/main.py        entry point: build a session, report, stop
+src/pipeline/session.py     entry point's session builder plus catalog config
+src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
@@ -180,5 +185,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md) - Codespaces setup, and sharing a live demo URL 
 - [`docs/pr-05-walkthrough.md`](docs/pr-05-walkthrough.md) - declared schemas, and why a left join relaxes nullability
 - [`docs/pr-06-walkthrough.md`](docs/pr-06-walkthrough.md) - the join, the duplicate key column, and the post-filter that becomes an inner join
+- [`docs/pr-07-walkthrough.md`](docs/pr-07-walkthrough.md) - the Iceberg catalog, getting jars onto a Python job's classpath, and MinIO's disappearance
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
