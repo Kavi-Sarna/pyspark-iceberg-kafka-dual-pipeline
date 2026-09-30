@@ -34,7 +34,7 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test ci run image image-run scan clean
+.PHONY: help env sync fmt lint types test ci run image image-run up down submit smoke bootstrap warehouse scan clean
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
@@ -79,17 +79,26 @@ image-run: image ## Run the app inside the container
 	docker run --rm pipeline:local
 
 up: ## Start the local Spark cluster
-	docker compose -f docker/compose.yaml up --detach --build --wait \
-	  spark-master spark-worker spark-history
+	docker compose -f docker/compose.yaml up --detach --build --wait 
 	@echo "master   http://localhost:8080"
 	@echo "worker   http://localhost:8081"
 	@echo "history  http://localhost:18080"
+	@echo "minio  	http://localhost:9001"
+	@echo "catalog  http://localhost:8181/v1/config"
 
 down: ## Stop the cluster and drop its volumes
 	docker compose -f docker/compose.yaml down --volumes --remove-orphans
 
 submit: up ## Submit the app to the running cluster
 	docker compose -f docker/compose.yaml run --rm submit
+
+bootstrap: up ## Create the Iceberg namespace and tables on the Compose stack
+	docker compose -f docker/compose.yaml run --rm bootstrap
+
+warehouse: env ## Same tables, in a local directory. No Docker, no catalog server
+	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
+	  uv run python -m pipeline.bootstrap
+	@echo "warehouse at $(CURDIR)/.warehouse"
 
 smoke: ## Bring up a cluster, submit, assert, tear down
 	./ci/smoke.sh
@@ -98,5 +107,5 @@ scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
 	./ci/scan.sh
 
 clean: ## Remove caches and local Spark artifacts
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy spark-warehouse metastore_db derby.log
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse spark-warehouse metastore_db derby.log
 	find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} +
