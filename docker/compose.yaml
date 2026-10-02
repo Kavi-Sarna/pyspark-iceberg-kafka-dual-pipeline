@@ -144,38 +144,46 @@ services:
 
 
   iceberg-rest:
-    image: apache/iceberg-rest-fixture:1.10.1@sha256:f7d679d30ac9c640bdeb2c015dff533cd3c8f1c7d491ebcb5d436f9a42db1d6f
+    # image: apache/iceberg-rest-fixture:1.10.1@sha256:f7d679d30ac9c640bdeb2c015dff533cd3c8f1c7d491ebcb5d436f9a42db1d6f
+    image: tabulario/iceberg-rest:1.6.0
+    container_name: iceberg-rest
     depends_on:
       minio-init:
         condition: service_completed_successfully
     environment:
       # CATALOG_* maps onto catalog propoerties: single _ becomes a dot, double 
       # __ becomes a dash. So CATALOG_IO__IMPL is the io-impl property.
-      # CATALOG_WAREHOUSE: s3://warehouse/
-      # CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
-      # CATALOG_S3_ENDPOINT: http://minio:9000
-      # CATALOG_S3_PATH__STYLE__ACCESS: "true"
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_PATH__STYLE__ACCESS: "true"
       # Pass both Iceberg S3FileIO properties and AWS SDK v2 system properties
-      JAVA_TOOL_OPTIONS: >-
-        -Dwarehouse=s3://warehouse/
-        -Dio-impl=org.apache.iceberg.aws.s3.S3FileIO
-        -Ds3.endpoint=http://minio:9000
-        -Ds3.path-style-access=true
-        -Ds3.access-key-id=pipeline-local
-        -Ds3.secret-access-key=pipeline-local-secret
-        -Daws.region=us-east-1
-        -Daws.s3.pathStyleAccess=true
-        -Daws.s3.useArnRegion=false
+      # JAVA_TOOL_OPTIONS: >-
+      #   -Dwarehouse=s3://warehouse/
+      #   -Dio-impl=org.apache.iceberg.aws.s3.S3FileIO
+      #   -Ds3.endpoint=http://minio:9000
+      #   -Ds3.path-style-access=true
+      #   -Ds3.access-key-id=pipeline-local
+      #   -Ds3.secret-access-key=pipeline-local-secret
+      #   -Daws.region=us-east-1
+      #   -Daws.s3.pathStyleAccess=true
+      #   -Daws.s3.useArnRegion=false
       # AWS environment variables
-      # AWS_ACCESS_KEY_ID: pipeline-local
-      # AWS_SECRET_ACCESS_KEY: pipeline-local-secret
-      # AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
       # AWS_DEFAULT_REGION: us-east-1
       # AWS_ENDPOINT_URL: http://minio:9000
       # AWS_ENDPOINT_URL_S3: http://minio:9000
       # AWS_EC2_METADATA_DISABLED: "true"
     ports:
       - "8181:8181"
+    healthcheck:
+      test: ["CMD", "/usr/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8181 && exec 3<&- && exec 3>&-"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
 
   # Creates the namespace and tables. Run once, then again whenever a schema 
@@ -184,7 +192,8 @@ services:
     <<: *image
     profiles: ["bootstrap"]
     depends_on:
-      - iceberg-rest
+      iceberg-rest:
+        condition: service_healthy
     environment:
       ICEBERG_WAREHOUSE: s3://warehouse/
       ICEBERG_URI: http://iceberg-rest:8181
@@ -196,6 +205,44 @@ services:
       SPARK_SUBMIT_OPTS: "-Divy.home=/tmp/.ivy2"
     command: ["/app/.venv/bin/python", "-m", "pipeline.bootstrap"]
 
+
+  # The batch job, submitted to the cluster.
+  # 
+  # --packages on the submit command, not in the session builder: under 
+  # spark-submit the JVM is already running by the time Python executes, so a 
+  # builder-set spark.jars.packages is silently ignored. The coordinates are 
+  # asked of the code so there is only one copy of them.
+  batch:
+    <<: *image
+    profiles: ["batch"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      spark-worker:
+        condition: service_healthy
+    volumes:
+      - spark-events:/tmp/spark-events
+    environment:
+      ICEBERG_WAREHOUSE: s3://warehouse/
+      ICEBERG_URI: http://iceberg-rest:8181
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        exec /opt/spark/bin/spark-submit
+        --master spark://spark-master:7077
+        --name pipeline-batch
+        --packages "$$(/app/.venv/bin/python -c 'from pipeline.session import PACKAGES; print(PACKAGES)')"
+        --conf spark.driver.host="$$(hostname -i)"
+        --conf spark.eventLog.enabled=true
+        --conf spark.eventLog.dir=/tmp/spark-events
+        --conf spark.sql.shuffle.partitions=1
+        "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
+        --mode batch
 
 volumes:
   minio-data:

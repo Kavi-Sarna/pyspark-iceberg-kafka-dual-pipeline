@@ -26,6 +26,10 @@ uv run ruff check .
 uv run mypy
 uv run pytest -q
 
+# A separate process on purpose: spark.jars.packages is read once per JVM, so 
+# Iceberg cannot be added to a session the unit tests already created.
+uv run pytest tests/integration -q
+
 # ------ image -------------------------------------------------------------
 # The image is part of the contract. CI sets REQUIRE_DOCKER=1 so a missing
 # daemon is a hard failure there. Locally the step is skipped with a 

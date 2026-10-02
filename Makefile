@@ -34,7 +34,7 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test ci run image image-run up down submit smoke bootstrap warehouse scan clean
+.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
@@ -65,6 +65,9 @@ types: ## Type-check
 
 test: env ## Run the unit tests
 	uv run pytest -q
+
+test-integration: env ## Real Iceberg tables in a temp directory. Own process
+	uv run pytest tests/integration -q
 
 ci: ## Run everything CI runs
 	./ci/run.sh
@@ -99,6 +102,17 @@ warehouse: env ## Same tables, in a local directory. No Docker, no catalog serve
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
 	  uv run python -m pipeline.bootstrap
 	@echo "warehouse at $(CURDIR)/.warehouse"
+
+seed: ## Put the worked example into the local warehouse tables
+	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
+	  uv run python -m pipeline.seed
+
+local: warehouse seed  ## Create, seed and run the whole thing locally. No Docker
+	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
+	  uv run pipeline --mode batch
+
+batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
+	docker compose -f docker/compose.yaml run --rm batch
 
 smoke: ## Bring up a cluster, submit, assert, tear down
 	./ci/smoke.sh

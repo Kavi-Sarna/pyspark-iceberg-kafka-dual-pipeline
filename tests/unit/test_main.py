@@ -16,9 +16,10 @@ def test_session_builds_and_reports_spark_4() -> None:
 
 
 def test_main_exits_zero() -> None:
+    """Pass argv explicitly: with None, argparse reads pytest's own arguments."""
     from pipeline.main import main
 
-    assert main() == 0
+    assert main([]) == 0
 
 
 @pytest.mark.parametrize(

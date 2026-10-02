@@ -54,6 +54,12 @@ FROM ${SPARK_IMAGE}
 
 USER root
 
+# Install coreutils so Spark's JavaUtils can spawn /bin/rm for scratch cleanup
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends coreutils; \
+    rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /python /python
 COPY --from=builder /app/.venv /app/.venv
 

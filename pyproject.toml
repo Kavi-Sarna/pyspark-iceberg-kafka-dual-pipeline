@@ -38,4 +38,4 @@ strict = true
 files = ["src", "tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests/unit"]
