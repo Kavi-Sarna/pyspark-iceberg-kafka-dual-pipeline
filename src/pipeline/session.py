@@ -35,6 +35,8 @@ class CatalogConfig:
     uri: str | None = None
     s3_endpoint: str | None = None
     region: str = "us-east-1"
+    access_key: str | None = None
+    secret_key: str | None = None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> CatalogConfig | None:
@@ -50,6 +52,8 @@ class CatalogConfig:
             uri=e.get("ICEBERG_URI"),
             s3_endpoint=e.get("S3_ENDPOINT"),
             region=e.get("AWS_REGION", "us-east-1"),
+            access_key=e.get("AWS_ACCESS_KEY_ID"),
+            secret_key=e.get("AWS_SECRET_ACCESS_KEY"),
         )
 
 
@@ -72,6 +76,13 @@ def catalog_options(cfg: CatalogConfig) -> dict[str, str]:
         options[f"{at}.s3.endpoint"] = cfg.s3_endpoint
         options[f"{at}.s3.path-style-access"] = "true"
         options[f"{at}.client.region"] = cfg.region
+        # Given to S3FileIO directly rather than left to the AWS SDK's default
+        # credential chain. The chain reads the environment of whichever JVM
+        # ends up doing the I/O, and under spark-submit that is not reliably
+        # the process holding these variables.
+        if cfg.access_key and cfg.secret_key:
+            options[f"{at}.s3.access-key-id"] = cfg.access_key
+            options[f"{at}.s3.secret-access-key"] = cfg.secret_key
     return options
 
 

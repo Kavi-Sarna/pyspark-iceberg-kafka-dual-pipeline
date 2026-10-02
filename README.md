@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 7 - a catalog to write to.** The pure `left_join` exists and is tested; the local stack now runs object storage and an Iceberg REST catalog, and `make warehouse` creates the tables in a plain directory with no Docker at all. The job still reads and writes nothing.
+> **Status: PR 8 - it runs end to end.** `make batch` reads two Iceberg tables, applies the join and writes the result back, and is green when the tables are empty. Streaming does not exist yet.
 > 
 > See [Status](#status).
 
@@ -37,11 +37,11 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Status
 
-| Phase                          | PRs   | State         |
-| ------------------------------ | ----- | ------------- |
-| Skeleton on a real cluster     | 1-4   | **done**      |
-| Pure core, no I/O              | 5-6   | **done**      |
-| Batch path on Iceberg          | 7-9   | **PR 7 done** |
+| Phase                          | PRs   | State            |
+| ------------------------------ | ----- | ---------------- |
+| Skeleton on a real cluster     | 1-4   | **done**         |
+| Pure core, no I/O              | 5-6   | **done**         |
+| Batch path on Iceberg          | 7-9   | **PRs 7-8 done** |
 | Streaming path on Kafka        | 10-13 | - |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
@@ -115,6 +115,7 @@ make up         # master, worker and History Server, all healthy
 make submit     # spark-submit the app to it
 make down       # stop and drop volumes
 
+make batch      # bootstrap, then run the job on the cluster into Iceberg
 make smoke      # all of the above, with assertions, then teardown
 ```
 
@@ -161,8 +162,11 @@ src/pipeline/main.py        entry point: build a session, report, stop
 src/pipeline/session.py     entry point's session builder plus catalog config
 src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
+src/pipeline/io/            adapters: iceberg.py
+src/pipeline/runner/        assembly: batch.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
+tests/integration/          real Iceberg tables in a temo directory; own process
 ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
 ci/smoke.sh                 end-to-end: submit to the cluster and assert 
@@ -186,5 +190,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-05-walkthrough.md`](docs/pr-05-walkthrough.md) - declared schemas, and why a left join relaxes nullability
 - [`docs/pr-06-walkthrough.md`](docs/pr-06-walkthrough.md) - the join, the duplicate key column, and the post-filter that becomes an inner join
 - [`docs/pr-07-walkthrough.md`](docs/pr-07-walkthrough.md) - the Iceberg catalog, getting jars onto a Python job's classpath, and MinIO's disappearance
+- [`docs/pr-08-walkthrough.md`](docs/pr-08-walkthrough.md) - the first end-to-end run, and why `--packages` moves to the submit command
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

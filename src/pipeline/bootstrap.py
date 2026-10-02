@@ -11,20 +11,31 @@ import logging
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 
-from pipeline.core.schemas import DELIVERY, SHIPMENT
+from pipeline.core.schemas import DELIVERY, JOINED, SHIPMENT
 from pipeline.session import CatalogConfig, build_session
 
 log = logging.getLogger("pipeline.bootstrap")
 
 NAMESPACE = "ops"
-TABLES: dict[str, StructType] = {"shipment": SHIPMENT, "delivery": DELIVERY}
+TABLES: dict[str, StructType] = {
+    "shipments": SHIPMENT,
+    "deliveries": DELIVERY,
+    "shipment_deliveries": JOINED,
+}
 
 
 def create_tables(spark: SparkSession, catalog: str) -> None:
+    # base_warehouse = warehouse.rstrip("/")
+
+    # namespace_location = f"{base_warehouse}/{NAMESPACE}"
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{NAMESPACE}")
     for table, schema in TABLES.items():
         fqn = f"{catalog}.{NAMESPACE}.{table}"
-        spark.sql(f"CREATE TABLE IF NOT EXISTS {fqn} ({schema.toDDL()}) USING iceberg")
+        # table_location = f"{namespace_location}/{table}"
+        spark.sql(
+            f"CREATE TABLE IF NOT EXISTS {fqn} ({schema.toDDL()}) USING iceberg"
+            # f"LOCATION '{table_location}'"
+        )
         log.info("ready   %s", fqn)
 
 
