@@ -7,6 +7,7 @@ domain logic.
 from __future__ import annotations
 
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql import functions as F
 
 
 def table_name(catalog: str, namespace: str, table: str) -> str:
@@ -25,6 +26,15 @@ def read(spark: SparkSession, table: str) -> DataFrame:
 def append(df: DataFrame, table: str) -> None:
     """Add a snapshot. Existing data is untouched."""
     df.writeTo(table).append()
+
+
+def replace(df: DataFrame, table: str) -> None:
+    """Replace every row, keeping the table and its properties.
+
+    Not createOrReplace, which redefines the table and would discard anything
+    the bootstrap set on it.
+    """
+    df.writeTo(table).overwrite(F.lit(True))
 
 
 def overwrite(df: DataFrame, table: str) -> None:

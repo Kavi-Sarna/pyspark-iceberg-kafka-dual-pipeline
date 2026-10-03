@@ -82,7 +82,7 @@ image-run: image ## Run the app inside the container
 	docker run --rm pipeline:local
 
 up: ## Start the local Spark cluster
-	docker compose -f docker/compose.yaml up --detach --build --wait 
+	docker compose -f docker/compose.yaml up --detach --wait 
 	@echo "master   http://localhost:8080"
 	@echo "worker   http://localhost:8081"
 	@echo "history  http://localhost:18080"
@@ -109,7 +109,13 @@ seed: ## Put the worked example into the local warehouse tables
 
 local: warehouse seed  ## Create, seed and run the whole thing locally. No Docker
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
-	  uv run pipeline --mode batch
+	  uv run python -m pipeline.main --mode batch
+
+seed-stack: bootstrap ## Put the worked example into the Compose stack tables
+	docker compose -f docker/compose.yaml run --rm seed
+
+demo: seed-stack ## Bootstrap, seed and run the job on the Compose stack
+	$(MAKE) batch
 
 batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 	docker compose -f docker/compose.yaml run --rm batch

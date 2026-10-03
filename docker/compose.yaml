@@ -206,6 +206,24 @@ services:
     command: ["/app/.venv/bin/python", "-m", "pipeline.bootstrap"]
 
 
+  # Puts the worked example into the input tables. Separate from bootstrap so 
+  # that creating tables and filling them stay distinct operations.
+  seed:
+    <<: *image
+    profiles: ["seed"]
+    depends_on:
+      iceberg-rest:
+        condition: service_healthy
+    environment:
+      ICEBERG_WAREHOUSE: s3://warehouse/
+      ICEBERG_URI: http://iceberg-rest:8181
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
+    command: ["/app/.venv/bin/python", "-m", "pipeline.seed"]
+
+
   # The batch job, submitted to the cluster.
   # 
   # --packages on the submit command, not in the session builder: under 
