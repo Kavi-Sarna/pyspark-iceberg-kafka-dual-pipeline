@@ -23,6 +23,11 @@ cleanup         # a stack left over from a failed run would mask a real failure
 
 # --wait blocks until every healthcheck passes, so the submit below cannot race
 # a master that is still binding its port.
+# Spark only: the smoke test does not touch the catalog yet, and starting 
+# object storage for it would just make it slower.
+# Build once, here, rather than letting compose rebuild per service: each 
+# rebuild re-resolves the base images and anonymous registries rate-limit.
+docker build -f docker/Dockerfile -t pipeline:local .
 "${COMPOSE[@]}" up --detach --build --wait spark-master spark-worker spark-history
 
 log="$(mktemp)"

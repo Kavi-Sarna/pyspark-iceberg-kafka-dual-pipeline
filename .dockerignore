@@ -19,3 +19,4 @@ metastore_db/
 derby.log
 .trivy/
 .devcontainer/
+.warehouse/
