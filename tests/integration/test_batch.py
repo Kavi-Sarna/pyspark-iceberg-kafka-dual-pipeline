@@ -7,7 +7,8 @@ property this PR is really claiming.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from pyspark.sql import SparkSession
@@ -100,10 +101,78 @@ def test_each_run_adds_a_snapshot(iceberg: SparkSession) -> None:
     assert snapshots(iceberg, OUTPUT) == before + 1
 
 
-def test_appending_twice_duplicates_rows(iceberg: SparkSession) -> None:
-    """Worth asserting so nobody mistakes append for idempotent.
+def test_returning_is_a_fixed_point(iceberg: SparkSession) -> None:
+    """Three runs, four rows. overwritePartitions replaces rather than adds.
 
-    The previous test ran the job a third time, so the output now holds the
-    join twice over. Making this a fixed point is PR 9's problem.
+    With append this held twelve rows by now. The snapshots still accumulate,
+    so the history is intact; it is the data that stops growing.
     """
-    assert read(iceberg, OUTPUT).count() == 8
+    assert read(iceberg, OUTPUT).count() == 4
+    batch.run(iceberg, CATALOG)
+    assert read(iceberg, OUTPUT).count() == 4
+
+
+def test_partitioning_is_hidden(iceberg: SparkSession) -> None:
+    """days(dispatch_time) adds no column. That is the whole idea.
+
+    A Hive-style table would need a dispatch_time_day column, every writer
+    would have to populate it and every reader would have to filter on it.
+    """
+    assert read(iceberg, OUTPUT).columns == [f.name for f in JOINED]
+
+
+def test_the_output_table_is_partitioned_by_day(iceberg: SparkSession) -> None:
+    rows = iceberg.sql(f"SELECT partition FROM {OUTPUT}.partitions").collect()
+    assert [r["partition"]["dispatch_time_day"] for r in rows] == [date(2026, 9, 13)]
+
+
+def test_table_properties_were_applied(iceberg: SparkSession) -> None:
+    """Properties are strings Iceberg does not validate, so check they stuck."""
+    props = dict(
+        (r["key"], r["value"]) for r in iceberg.sql(f"SHOW TBLPROPERTIES {OUTPUT}").collect()
+    )
+    assert props["write.distribution-mode"] == "hash"
+    assert props["write.target-file-size-bytes"] == "134217728"
+
+
+def test_partitioning_prunes_what_an_unclustered_table_cannot(
+    iceberg: SparkSession, warehouse: Path
+) -> None:
+    """The measured case for partitioning, on data that did not arrive sorted.
+
+    Ten days interleaved into one file. The unpartitioned table has a single
+    file whose bounds span the whole range, so a one-day filter reads all of
+    it. The partitioned table was forced to split by day, so it reads a tenth.
+    """
+    ddl = SHIPMENT.toDDL()
+    iceberg.sql(
+        f"CREATE TABLE {CATALOG}.ops.part ({ddl}) USING iceberg "
+        f"PARTITIONED BY (days(dispatch_time))"
+    )
+    iceberg.sql(f"CREATE TABLE {CATALOG}.ops.flat ({ddl}) USING iceberg")
+
+    rows = [
+        (f"shp-{i}", "carrier-a", datetime(2026, 9, 1) + timedelta(days=i % 10, minutes=i))
+        for i in range(1000)
+    ]
+    df = iceberg.createDataFrame(rows, SHIPMENT).coalesce(1)
+    df.writeTo(f"{CATALOG}.ops.part").append()
+    df.writeTo(f"{CATALOG}.ops.flat").append()
+
+    def rows_scanned(table: str) -> int:
+        q = (
+            f"SELECT * FROM {CATALOG}.ops.{table} "
+            f"WHERE dispatch_time >= TIMESTAMP '2026-09-05 00:00:00' "
+            f"AND dispatch_time < TIMESTAMP '2026-09-06 00:00:00'"
+        )
+        d = iceberg.sql(q)
+        d.collect()
+        leaves = d._jdf.queryExecution().executedPlan().collectLeaves().iterator()
+        while leaves.hasNext():
+            metrics = leaves.next().metrics()
+            if metrics.contains("numOutputRows"):
+                return int(metrics.apply("numOutputRows").value())
+        raise AssertionError("No Scan metric found")
+
+    assert rows_scanned("flat") == 1000
+    assert rows_scanned("part") == 100

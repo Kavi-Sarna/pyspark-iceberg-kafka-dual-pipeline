@@ -8,7 +8,7 @@ from pyspark.sql import SparkSession
 
 from pipeline.core.join import JoinSpec, left_join
 from pipeline.core.schemas import JOIN_KEY
-from pipeline.io.iceberg import append, read, table_name
+from pipeline.io.iceberg import overwrite, read, table_name
 
 log = logging.getLogger("pipeline.batch")
 
@@ -31,7 +31,10 @@ def run(spark: SparkSession, catalog: str) -> int:
     joined.cache()
     try:
         written = joined.count()
-        append(joined, table_name(catalog, NAMESPACE, OUTPUT))
+        # Replaces only the days this run produced, so re-running is a fixed
+        # point rather than a doubling. Days absent from the input are left
+        # alone, whichis why the output is partitioned at all.
+        overwrite(joined, table_name(catalog, NAMESPACE, OUTPUT))
     finally:
         joined.unpersist()
 

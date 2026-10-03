@@ -14,7 +14,7 @@ from datetime import datetime
 from pyspark.sql import SparkSession
 
 from pipeline.core.schemas import DELIVERY, SHIPMENT
-from pipeline.io.iceberg import append, table_name
+from pipeline.io.iceberg import replace, table_name
 from pipeline.runner import batch
 from pipeline.session import CatalogConfig, build_session
 
@@ -39,11 +39,11 @@ DELIVERIES = [
 
 
 def seed(spark: SparkSession, catalog: str) -> None:
-    append(
+    replace(
         spark.createDataFrame(SHIPMENTS, SHIPMENT),
         table_name(catalog, batch.NAMESPACE, batch.SHIPMENTS),
     )
-    append(
+    replace(
         spark.createDataFrame(DELIVERIES, DELIVERY),
         table_name(catalog, batch.NAMESPACE, batch.DELIVERIES),
     )

@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 8 - it runs end to end.** `make batch` reads two Iceberg tables, applies the join and writes the result back, and is green when the tables are empty. Streaming does not exist yet.
+> **Status: PR 9 - the batch path is finished.** The tables are partitoned by day with hidden partitioning, the write properties are set, and re-running the job is a fixed point rather than a doubling. Streaming does not exist yet.
 > 
 > See [Status](#status).
 
@@ -41,7 +41,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | ------------------------------ | ----- | ---------------- |
 | Skeleton on a real cluster     | 1-4   | **done**         |
 | Pure core, no I/O              | 5-6   | **done**         |
-| Batch path on Iceberg          | 7-9   | **PRs 7-8 done** |
+| Batch path on Iceberg          | 7-9   | **done**         |
 | Streaming path on Kafka        | 10-13 | - |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
@@ -191,5 +191,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-06-walkthrough.md`](docs/pr-06-walkthrough.md) - the join, the duplicate key column, and the post-filter that becomes an inner join
 - [`docs/pr-07-walkthrough.md`](docs/pr-07-walkthrough.md) - the Iceberg catalog, getting jars onto a Python job's classpath, and MinIO's disappearance
 - [`docs/pr-08-walkthrough.md`](docs/pr-08-walkthrough.md) - the first end-to-end run, and why `--packages` moves to the submit command
+- [`docs/pr-09-walkthrough.md`](docs/pr-09-walkthrough.md) - hidden partitioning, what it actually buys measured, and the idempotent re-run
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
