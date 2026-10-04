@@ -285,6 +285,25 @@ services:
     command: ["/app/.venv/bin/python", "-m", "pipeline.seed"]
 
 
+  # Sends one scenario and exits. SCENARIO picks which.
+  produce:
+    <<: *image
+    profiles: ["produce"]
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        exec /app/.venv/bin/python -m pipeline.producer
+        --scenario "$${SCENARIO:-matched}"
+        --speed "$${SPEED:-1}"
+  
+
   # The batch job, submitted to the cluster.
   # 
   # --packages on the submit command, not in the session builder: under 
