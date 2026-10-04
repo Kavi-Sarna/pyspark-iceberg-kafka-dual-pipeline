@@ -186,6 +186,63 @@ services:
       start_period: 5s
 
 
+  # --- the stream ---------------------------------------------------------
+  # KRaft: no ZooKeeper. One node is both broker and controller, which is only
+  # sane on a laptop.
+  #
+  # Two listeners matter. Containers reach the broker as kafka:9092; the host
+  # reaches it as localhost:29092. A broker advertises the address clients
+  # should dial back on, so a single listener would work from exactly one of
+  # those two places and fail confusingly from the other.
+  kafka:
+    image: apache/kafka:4.2.2@sha256:1213eb3943d551e5ed1fca7a4e109001cee35770b66a02a0c37a8964efe09b69
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,HOST://:29092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,HOST:PLAINTEXT
+      # One broker cannot replicate anything, so every internal topic must ask
+      # for one copy. The defaults ask for three and the broker refuses.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+    ports:
+      - "29092:29092"
+    healthcheck:
+      test: ["CMD", "/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+      start_period: 10s
+
+
+  # 8085 on the host because 8081 is already the Spark worker UI. Inside the
+  # network it is still 8081, which is what every Confluent example assumes.
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.9.10@sha256:ae63c314e3f78f78d5bdce8c64c0f98ea1dc4d358ef52de2fdae56cda7e82ec0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR: "1"
+    ports:
+      - "8085:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/subjects"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+  
+
   # Creates the namespace and tables. Run once, then again whenever a schema 
   # changes; CREATE TABLE IF NOT EXISTS makes it safe to repeat.
   bootstrap:
@@ -193,6 +250,8 @@ services:
     profiles: ["bootstrap"]
     depends_on:
       iceberg-rest:
+        condition: service_healthy
+      schema-registry:
         condition: service_healthy
     environment:
       ICEBERG_WAREHOUSE: s3://warehouse/
@@ -203,6 +262,8 @@ services:
       AWS_REGION: us-east-1
       IVY_HOME: /tmp/.ivy2
       SPARK_SUBMIT_OPTS: "-Divy.home=/tmp/.ivy2"
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
     command: ["/app/.venv/bin/python", "-m", "pipeline.bootstrap"]
 
 
