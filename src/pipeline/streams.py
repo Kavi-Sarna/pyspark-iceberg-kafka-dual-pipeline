@@ -116,6 +116,19 @@ def register_subjects(cfg: StreamConfig) -> None:
         log.info("ready   subject %s -> id %s", subject, schema_id)
 
 
+def schema_id(cfg: StreamConfig, subject: str) -> int:
+    """The registry's id for a subject's latest version.
+
+    Producers need it because the Confluent wire format puts it in every
+    message, so a consumer can fetch the exact schema a record was written
+    with rather than assuming the current one.
+    """
+    url = f"{cfg.schema_registry}/subjects/{subject}/versions/latest"
+    with urllib.request.urlopen(url, timeout=20) as response:
+        found: int = json.load(response)["id"]
+    return found
+
+
 def setup(cfg: StreamConfig) -> None:
     create_topics(cfg)
     register_subjects(cfg)

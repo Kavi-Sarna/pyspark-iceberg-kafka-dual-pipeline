@@ -117,6 +117,10 @@ seed-stack: bootstrap ## Put the worked example into the Compose stack tables
 demo: seed-stack ## Bootstrap, seed and run the job on the Compose stack
 	$(MAKE) batch
 
+produce: bootstrap ## Send a scenario to Kafka. SCENARIO=matched|unmatched|advance|duplicate|out-of-order|watermark
+	SCENARIO=$(SCENARIO) SPEED=$(SPEED) \
+	  docker compose -f docker/compose.yaml run --rm produce
+
 batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 	docker compose -f docker/compose.yaml run --rm batch
 
