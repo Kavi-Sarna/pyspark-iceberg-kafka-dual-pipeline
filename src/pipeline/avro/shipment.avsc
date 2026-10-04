@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "Shipment",
+  "namespace": "pipeline.ops",
+  "doc": "A shipment leaving a depot.",
+  "fields": [
+    {"name": "shipment_id", "type": "string"},
+    {"name": "carrier", "type": "string"},
+    {
+      "name": "dispatch_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Event time. The watermark column on this side of the join."
+    }
+  ]
+}

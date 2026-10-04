@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 9 - the batch path is finished.** The tables are partitoned by day with hidden partitioning, the write properties are set, and re-running the job is a fixed point rather than a doubling. Streaming does not exist yet.
+> **Status: PR 10 - the stream has somewhere to arrive.** The batch path is finished; the local stack now runs Kafka and a Schema Registry, with topics and Avro subjects created by the bootstrap. Nothing reads a topic yet.
 > 
 > See [Status](#status).
 
@@ -42,7 +42,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Skeleton on a real cluster     | 1-4   | **done**         |
 | Pure core, no I/O              | 5-6   | **done**         |
 | Batch path on Iceberg          | 7-9   | **done**         |
-| Streaming path on Kafka        | 10-13 | - |
+| Streaming path on Kafka        | 10-13 | **PR 10 done**   |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
 | Operational drills             | 18    | - |
@@ -124,6 +124,8 @@ make smoke      # all of the above, with assertions, then teardown
 | Master UI                 | http://localhost:8080     |
 | MinIO console             | http://localhost:9001     |
 | Iceberg REST catalog      | http://localhost:8181     |
+| Schema Registry           | http://localhost:8085     |
+| Kafka, from the host      | http://localhost:29092    |
 | Worker UI                 | http://localhost:8081     |
 | History Server            | http://localhost:18080    |
 
@@ -162,6 +164,8 @@ src/pipeline/main.py        entry point: build a session, report, stop
 src/pipeline/session.py     entry point's session builder plus catalog config
 src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
+src/pipeline/streams.py     Kafka topics and Schema Registry subjects
+src/pipeline/avro/          the wire contract, as .avsc
 src/pipeline/io/            adapters: iceberg.py
 src/pipeline/runner/        assembly: batch.py
 tests/conftest.py           one session-scoped SparkSession for the suite
@@ -192,5 +196,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-07-walkthrough.md`](docs/pr-07-walkthrough.md) - the Iceberg catalog, getting jars onto a Python job's classpath, and MinIO's disappearance
 - [`docs/pr-08-walkthrough.md`](docs/pr-08-walkthrough.md) - the first end-to-end run, and why `--packages` moves to the submit command
 - [`docs/pr-09-walkthrough.md`](docs/pr-09-walkthrough.md) - hidden partitioning, what it actually buys measured, and the idempotent re-run
+- [`docs/pr-10-walkthrough.md`](docs/pr-10-walkthrough.md) - Kafka in KRaft mode, the two listener problem, and keeping Avro and Spark schema in step
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

@@ -15,6 +15,8 @@ from pyspark.sql.types import StructType
 
 from pipeline.core.schemas import DELIVERY, JOINED, SHIPMENT
 from pipeline.session import CatalogConfig, build_session
+from pipeline.streams import StreamConfig
+from pipeline.streams import setup as setup_streams
 
 log = logging.getLogger("pipeline.bootstrap")
 
@@ -59,9 +61,6 @@ def create_table_sql(fqn: str, columns: str, spec: TableSpec) -> str:
 
 
 def create_tables(spark: SparkSession, catalog: str) -> None:
-    # base_warehouse = warehouse.rstrip("/")
-
-    # namespace_location = f"{base_warehouse}/{NAMESPACE}"
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {catalog}.{NAMESPACE}")
     for table, spec in TABLES.items():
         fqn = f"{catalog}.{NAMESPACE}.{table}"
@@ -73,16 +72,23 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
 
     catalog = CatalogConfig.from_env()
-    if catalog is None:
-        log.error("no catalog configured; set ICEBERG_WAREHOUSE")
+    streams = StreamConfig.from_env()
+    if catalog is None and streams is None:
+        log.error("nothing configured; set ICEBERG_WAREHOUSE or KAFKA_BOOTSTRAP_SERVERS")
         return 1
 
-    spark = build_session("pipeline-bootstrap", catalog=catalog)
-    spark.sparkContext.setLogLevel("WARN")
-    try:
-        create_tables(spark, catalog.name)
-    finally:
-        spark.stop()
+    # Kafka first: it needs no Spark, so a Kafka-only bootstrap never pays for
+    # a JVM.
+    if streams is not None:
+        setup_streams(streams)
+
+    if catalog is not None:
+        spark = build_session("pipeline-bootstrap", catalog=catalog)
+        spark.sparkContext.setLogLevel("WARN")
+        try:
+            create_tables(spark, catalog.name)
+        finally:
+            spark.stop()
     return 0
 
 
