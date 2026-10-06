@@ -342,6 +342,52 @@ services:
         "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
         --mode batch
 
+
+# The streaming job. Runs until stopped, unless AWAIT_SECONDS is set.
+  #
+  # The checkpoint is a volume, not s3a://. Structured Streaming checkpoints
+  # rely on rename for atomicity and object stores have no such operation;
+  # using one needs hadoop-aws plus an AWS SDK bundle and care besides. A
+  # volume is the honest local stand-in for durable storage the driver owns.
+  stream:
+    <<: *image
+    profiles: ["stream"]
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+      spark-master:
+        condition: service_healthy
+    volumes:
+      - spark-events:/tmp/spark-events
+      - checkpoints:/var/lib/pipeline/checkpoints
+    environment:
+      ICEBERG_WAREHOUSE: s3://warehouse/
+      ICEBERG_URI: http://iceberg-rest:8181
+      S3_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: pipeline-local
+      AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+      AWS_REGION: us-east-1
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        exec /opt/spark/bin/spark-submit
+        --master spark://spark-master:7077
+        --name pipeline-stream
+        --packages "$$(/app/.venv/bin/python -c 'from pipeline.session import PACKAGES, STREAM_PACKAGES; print(PACKAGES + "," + STREAM_PACKAGES)')"
+        --conf spark.driver.host="$$(hostname -i)"
+        --conf spark.eventLog.enabled=true
+        --conf spark.eventLog.dir=/tmp/spark-events
+        --conf spark.sql.shuffle.partitions=2
+        "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
+        --mode stream
+        --checkpoint /var/lib/pipeline/checkpoints/stream
+        --await-seconds "$${AWAIT_SECONDS:-0}"
+
+
 volumes:
   minio-data:
   spark-events:
+  checkpoints:

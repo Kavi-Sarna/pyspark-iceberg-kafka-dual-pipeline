@@ -78,9 +78,11 @@ SCENARIOS: Mapping[str, Sequence[Step]] = {
     # A shipment with no delivery, ever. The join cannot emit it until the
     # watermark proves no match can still arrive.
     "unmatched": [shipment("shp-2", 5)],
-    # A later shipment and nothing else: event time moves forward, which is
-    # what releases the pending row above.
-    "advance": [shipment("shp-9", 120)],
+    # Pushes event time forward on BOTH topics, which is what releases a
+    # pending unmatched row. A stream-stream join takes the minimum watermark
+    # across its inputs, so advancing only one leaves the join exactly where
+    # it was and the row never emits.
+    "advance": [shipment("shp-9", 120), delivery("dlv-9", "shp-9", 121)],
     # Two deliveries for one shipment: the row multiplication, on a stream.
     "duplicate": [
         shipment("shp-3", 10),

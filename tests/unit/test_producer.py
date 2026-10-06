@@ -96,6 +96,13 @@ def test_watermark_scenario_pauses_then_jumps_event_time() -> None:
     assert second.value["dispatch_time"] > first.value["dispatch_time"]
 
 
+def test_advance_pushes_both_topics() -> None:
+    """A stream-stream join watermarks on the minimum of its inputd, so an
+    event on one topic alone leaves the join where it was."""
+    topics = {s.topic for s in SCENARIOS["advance"]}
+    assert topics == {SHIPMENTS, DELIVERIES}
+
+
 def test_duplicate_has_two_deliveries_for_one_shipment() -> None:
     steps = SCENARIOS["duplicate"]
     assert sum(s.topic == DELIVERIES for s in steps) == 2

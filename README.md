@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 11 - events on the topic.** The batch path is finished, Kafka and a Schema Registry are in the stack, and a producer sends named scenarios with fixed event times and controllable pauses. Nothing reads a topic yet.
+> **Status: PR 12 - both modes run.** The same `left_join` now runs as a batch job over Iceberg and as a continuous query over Kafka, differing only in the `JoinSpec` each runner supplies.
 > 
 > See [Status](#status).
 
@@ -42,7 +42,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Skeleton on a real cluster     | 1-4   | **done**           |
 | Pure core, no I/O              | 5-6   | **done**           |
 | Batch path on Iceberg          | 7-9   | **done**           |
-| Streaming path on Kafka        | 10-13 | **PRs 10-11 done** |
+| Streaming path on Kafka        | 10-13 | **PRs 10-12 done** |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
 | Operational drills             | 18    | - |
@@ -116,6 +116,7 @@ make submit     # spark-submit the app to it
 make down       # stop and drop volumes
 
 make produce    # send a scenario to Kafka, SCENARIO=unmatched|watermark|...
+make stream     # run the streaming join; AWAIT_SECONDS=90 to stop after a while
 make batch      # bootstrap, then run the job on the cluster into Iceberg
 make smoke      # all of the above, with assertions, then teardown
 ```
@@ -168,8 +169,8 @@ src/pipeline/core/          pure domain logic: schema.py, join.py
 src/pipeline/streams.py     Kafka topics and Schema Registry subjects
 src/pipeline/producer.py    scenarios with fixed event times and explicit pauses
 src/pipeline/avro/          the wire contract, as .avsc
-src/pipeline/io/            adapters: iceberg.py
-src/pipeline/runner/        assembly: batch.py
+src/pipeline/io/            adapters: iceberg.py, kafka.py
+src/pipeline/runner/        assembly: batch.py, stream.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 tests/integration/          real Iceberg tables in a temo directory; own process
@@ -200,5 +201,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-09-walkthrough.md`](docs/pr-09-walkthrough.md) - hidden partitioning, what it actually buys measured, and the idempotent re-run
 - [`docs/pr-10-walkthrough.md`](docs/pr-10-walkthrough.md) - Kafka in KRaft mode, the two listener problem, and keeping Avro and Spark schema in step
 - [`docs/pr-11-walkthrough.md`](docs/pr-11-walkthrough.md) - a producer with fixed event times, and the Confluent wire format written by hand
+- [`docs/pr-12-walkthrough.md`](docs/pr-12-walkthrough.md) - the streaming join: why watermarks are not enough. and the five bytes that corrupt silently
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
