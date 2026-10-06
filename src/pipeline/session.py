@@ -7,7 +7,7 @@ configuration is the part that differs most between a laptop, CI and a cluster.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from pyspark.sql import SparkSession
@@ -18,6 +18,14 @@ PACKAGES = (
     f"org.apache.iceberg:iceberg-aws-bundle:{ICEBERG_VERSION}"
 )
 EXTENSIONS = "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
+
+SPARK_VERSION = "4.0.4"
+# spark-avro is not in the pyspark wheel: only the Avro library is, not the
+# connector that provides from_avro.
+STREAM_PACKAGES = (
+    f"org.apache.spark:spark-sql-kafka-0-10_2.13:{SPARK_VERSION},"
+    f"org.apache.spark:spark-avro_2.13:{SPARK_VERSION}"
+)
 
 
 @dataclass(frozen=True)
@@ -96,12 +104,23 @@ def launcher_set_master() -> bool:
     return "PYSPARK_GATEWAY_PORT" in os.environ
 
 
-def build_session(app_name: str = "pipeline", catalog: CatalogConfig | None = None) -> SparkSession:
+def build_session(
+    app_name: str = "pipeline",
+    catalog: CatalogConfig | None = None,
+    extra_packages: Sequence[str] = (),
+) -> SparkSession:
     """Build a session, defaulting to local[*] only when nothing else decides."""
     builder = SparkSession.builder
     if not launcher_set_master():
         builder = builder.appName(app_name).master("local[*]")
-    if catalog is not None:
-        for key, value in catalog_options(catalog).items():
-            builder = builder.config(key, value)
+
+    options = dict(catalog_options(catalog)) if catalog is not None else {}
+    # One comma-separated string, so the streaming jars have to be merged with
+    # the catalog's rather than set alongside them.
+    packages = [p for p in (options.get("spark.jars.packages"), *extra_packages) if p]
+    if packages:
+        options["spark.jars.packages"] = ",".join(packages)
+
+    for key, value in options.items():
+        builder = builder.config(key, value)
     return builder.getOrCreate()

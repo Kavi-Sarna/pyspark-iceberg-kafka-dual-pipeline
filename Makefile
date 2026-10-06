@@ -34,7 +34,7 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean
+.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean stream-clean clean-checkpoints
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
@@ -124,12 +124,20 @@ produce: bootstrap ## Send a scenario to Kafka. SCENARIO=matched|unmatched|advan
 batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 	docker compose -f docker/compose.yaml run --rm batch
 
+stream: bootstrap ## Run the streaming job. AWAIT_SECONDS=60 to stop after a minute
+	AWAIT_SECONDS=$(AWAIT_SECONDS) \
+	  docker compose -f docker/compose.yaml run --rm stream
+
 smoke: ## Bring up a cluster, submit, assert, tear down
 	./ci/smoke.sh
 
 scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
 	./ci/scan.sh
 
-clean: ## Remove caches and local Spark artifacts
+clean: down ## Remove caches and local Spark artifacts
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse spark-warehouse metastore_db derby.log
 	find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} +
+
+clean-checkpoints: ## Drop only the checkpoint volume without tearing down everything
+	-docker compose -f docker/compose.yaml rm -f -s -v stream 2>/dev/null || true
+	-docker volume rm -f pipeline_checkpoints docker_checkpoints 2>/dev/null || true

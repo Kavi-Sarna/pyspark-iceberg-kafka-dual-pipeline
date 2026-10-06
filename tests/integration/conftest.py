@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
-from pipeline.session import CatalogConfig, build_session
+from pipeline.session import STREAM_PACKAGES, CatalogConfig, build_session
 
 CATALOG = "lake"
 
@@ -39,6 +39,8 @@ def iceberg(warehouse: Path) -> Iterator[SparkSession]:
     session = build_session(
         "pipeline-integration",
         catalog=CatalogConfig(name=CATALOG, type="hadoop", warehouse=str(warehouse)),
+        # from_avro lives in spark-avro, which the pyspark wheel does not ship.
+        extra_packages=(STREAM_PACKAGES,),
     )
     session.sparkContext.setLogLevel("WARN")
     session.conf.set("spark.sql.shuffle.partitions", "1")
