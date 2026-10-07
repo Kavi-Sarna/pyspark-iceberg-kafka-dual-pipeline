@@ -20,3 +20,4 @@ derby.log
 .trivy/
 .devcontainer/
 .warehouse/
+.watermark-demo/

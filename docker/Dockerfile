@@ -74,8 +74,8 @@ RUN set -eux; \
 # Fix uid 185's home directory in /etc/passwd so Java's `user.home` resolves to /tmp
 # rather than /nonexistent, and ensure Ivy cache directories exist with correct permissions.
 RUN usermod -d /tmp spark 2>/dev/null || sed -i 's|:185:185::/nonexistent:|:185:185::/tmp:|' /etc/passwd && \
-    mkdir -p /tmp/spark-events /tmp/.ivy2 && \
-    chown -R 185:185 /tmp/spark-events /tmp/.ivy2
+    mkdir -p /tmp/spark-events /tmp/.ivy2 /var/lib/pipeline/checkpoints && \
+    chown -R 185:185 /tmp/spark-events /tmp/.ivy2 /var/lib/pipeline
 
 # PYSPARK_PYTHON: workers otherwise launch the image's 3.10 and fail with
 # PYTHON_VERSION_MISMATCH. HOME: uid 185's home is /nonexistent.

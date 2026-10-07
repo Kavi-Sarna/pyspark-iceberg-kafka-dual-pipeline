@@ -34,7 +34,7 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean
+.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean stream-clean clean-checkpoints
 
 help: ## Show this help
 	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
@@ -107,6 +107,9 @@ seed: ## Put the worked example into the local warehouse tables
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
 	  uv run python -m pipeline.seed
 
+watermark-demo: env ## Watch an unmatched row wait, then be released. No Docker
+	uv run python -m pipeline.watermark_demo
+
 local: warehouse seed  ## Create, seed and run the whole thing locally. No Docker
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
 	  uv run python -m pipeline.main --mode batch
@@ -117,8 +120,16 @@ seed-stack: bootstrap ## Put the worked example into the Compose stack tables
 demo: seed-stack ## Bootstrap, seed and run the job on the Compose stack
 	$(MAKE) batch
 
+produce: bootstrap ## Send a scenario to Kafka. SCENARIO=matched|unmatched|advance|duplicate|out-of-order|watermark
+	SCENARIO=$(SCENARIO) SPEED=$(SPEED) \
+	  docker compose -f docker/compose.yaml run --rm produce
+
 batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 	docker compose -f docker/compose.yaml run --rm batch
+
+stream: bootstrap ## Run the streaming job. AWAIT_SECONDS=60 to stop after a minute
+	AWAIT_SECONDS=$(AWAIT_SECONDS) \
+	  docker compose -f docker/compose.yaml run --rm stream
 
 smoke: ## Bring up a cluster, submit, assert, tear down
 	./ci/smoke.sh
@@ -126,6 +137,10 @@ smoke: ## Bring up a cluster, submit, assert, tear down
 scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
 	./ci/scan.sh
 
-clean: ## Remove caches and local Spark artifacts
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse spark-warehouse metastore_db derby.log
+clean: down ## Remove caches and local Spark artifacts
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse .watermark-demo spark-warehouse metastore_db derby.log
 	find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} +
+
+clean-checkpoints: ## Drop only the checkpoint volume without tearing down everything
+	-docker compose -f docker/compose.yaml rm -f -s -v stream 2>/dev/null || true
+	-docker volume rm -f pipeline_checkpoints docker_checkpoints 2>/dev/null || true

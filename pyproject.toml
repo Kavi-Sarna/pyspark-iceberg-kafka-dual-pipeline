@@ -8,14 +8,17 @@ authors = [
 ]
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "pyspark==4.0.4"
+    "confluent-kafka>=2.15,<3",
+    "fastavro>=1.12,<2",
+    "pyspark==4.0.4",
 ]
 
 [dependency-groups]
 dev = [
     "mypy>=1.11",
     "pytest>=8",
-    "ruff>=0.6"
+    "ruff>=0.6",
+    "testcontainers[kafka]>=4.15,<5",
 ]
 
 [project.scripts]
@@ -36,6 +39,13 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 python_version = "3.12"
 strict = true
 files = ["src", "tests"]
+
+# confluent_kafka re-exports from its C extension without __all__, which strict
+# mode reads as a private name. Scoped to that package rather than disabling
+# the check everywhere.
+[[tool.mypy.overrides]]
+module = "confluent_kafka.*"
+implicit_reexport = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit"]

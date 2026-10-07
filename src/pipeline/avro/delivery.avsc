@@ -1,0 +1,15 @@
+{
+  "type": "record",
+  "name": "Delivery",
+  "namespace": "pipeline.ops",
+  "doc": "A delivery scan for a shipment.",
+  "fields": [
+    {"name": "delivery_id", "type": "string"},
+    {"name": "shipment_id", "type": "string"},
+    {
+      "name": "delivered_time",
+      "type": {"type": "long", "logicalType": "timestamp-millis"},
+      "doc": "Event time. The watermark column on this side of the join."
+    }
+  ]
+}

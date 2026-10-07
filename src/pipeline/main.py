@@ -7,17 +7,29 @@ import logging
 import sys
 from collections.abc import Sequence
 
-from pipeline.runner import batch
-from pipeline.session import CatalogConfig, build_session
+from pipeline.runner import batch, stream
+from pipeline.session import STREAM_PACKAGES, CatalogConfig, build_session
+from pipeline.streams import StreamConfig
 
 log = logging.getLogger("pipeline")
 
-MODES = ("report", "batch")
+MODES = ("report", "batch", "stream")
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="pipeline")
     parser.add_argument("--mode", choices=MODES, default="report")
+    parser.add_argument(
+        "--checkpoint",
+        default="/tmp/checkpoints/stream",
+        help="durable location for streaming progress; must survive a restart",
+    )
+    parser.add_argument(
+        "--await-seconds",
+        type=int,
+        default=0,
+        help="0 runs until interrupted; a positive value stops after that long",
+    )
     return parser.parse_args(argv)
 
 
@@ -32,17 +44,33 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
 
     catalog = CatalogConfig.from_env()
-    if args.mode == "batch" and catalog is None:
-        log.error("batch mode needs a catalog; set ICEBERG_WAREHOUSE")
+    streams = StreamConfig.from_env()
+
+    if args.mode in ("batch", "stream") and catalog is None:
+        log.error("%s mode needs a catalog; set ICEBERG_WAREHOUSE", args.mode)
+        return 1
+    if args.mode == "stream" and streams is None:
+        log.error("stream mode needs Kafka; set KAFKA_BOOTSTRAP_SERVERS")
         return 1
 
-    spark = build_session(catalog=catalog)
+    # The Kafka and Avro jars are only fetched when streaming, so a batch run
+    # does not pay for them.
+    extra = (STREAM_PACKAGES,) if args.mode == "stream" else ()
+    spark = build_session(catalog=catalog, extra_packages=extra)
     spark.sparkContext.setLogLevel("WARN")
     try:
         log.info("master   %s", spark.sparkContext.master)
         if args.mode == "batch":
             assert catalog is not None
             batch.run(spark, catalog.name)
+        elif args.mode == "stream":
+            assert catalog is not None and streams is not None
+            query = stream.run(spark, catalog.name, streams, args.checkpoint)
+            if args.await_seconds:
+                query.awaitTermination(args.await_seconds)
+                query.stop()
+            else:
+                query.awaitTermination()
         else:
             report(spark, catalog)
     finally:

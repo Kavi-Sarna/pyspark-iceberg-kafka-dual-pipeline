@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 9 - the batch path is finished.** The tables are partitoned by day with hidden partitioning, the write properties are set, and re-running the job is a fixed point rather than a doubling. Streaming does not exist yet.
+> **Status: PR 13 - the streaming phase is finished.** Both modes run off the same `left_join`, and the streaming semantics are assertions rather than claims: the unmatched shipment waits, then appears, and the row waiting in the state store can be queried by name.
 > 
 > See [Status](#status).
 
@@ -37,12 +37,12 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Status
 
-| Phase                          | PRs   | State            |
-| ------------------------------ | ----- | ---------------- |
-| Skeleton on a real cluster     | 1-4   | **done**         |
-| Pure core, no I/O              | 5-6   | **done**         |
-| Batch path on Iceberg          | 7-9   | **done**         |
-| Streaming path on Kafka        | 10-13 | - |
+| Phase                          | PRs   | State                |
+| ------------------------------ | ----- | -------------------- |
+| Skeleton on a real cluster     | 1-4   | **done**             |
+| Pure core, no I/O              | 5-6   | **done**             |
+| Batch path on Iceberg          | 7-9   | **done**             |
+| Streaming path on Kafka        | 10-13 | **done**             |
 | One artifact, two modes        | 14    | - |
 | Observability and Kubernetes   | 15-17 | - |
 | Operational drills             | 18    | - |
@@ -69,6 +69,13 @@ You need a JDK 17 or 21 - Spark runs on the JVM even though this is a Python pro
 ```bash
 make env           # resolves and validates JAVA_HOME, fails loudly if it can't
 make run
+```
+
+Two things worth running before anything needs Docker:
+
+```bash
+make local              # create, seed and run the batch job in a directory warehouse
+make watermark-demo     # watch an unmatched row wait in state, then be released
 ```
 
 ```
@@ -115,6 +122,8 @@ make up         # master, worker and History Server, all healthy
 make submit     # spark-submit the app to it
 make down       # stop and drop volumes
 
+make produce    # send a scenario to Kafka, SCENARIO=unmatched|watermark|...
+make stream     # run the streaming join; AWAIT_SECONDS=90 to stop after a while
 make batch      # bootstrap, then run the job on the cluster into Iceberg
 make smoke      # all of the above, with assertions, then teardown
 ```
@@ -124,6 +133,8 @@ make smoke      # all of the above, with assertions, then teardown
 | Master UI                 | http://localhost:8080     |
 | MinIO console             | http://localhost:9001     |
 | Iceberg REST catalog      | http://localhost:8181     |
+| Schema Registry           | http://localhost:8085     |
+| Kafka, from the host      | http://localhost:29092    |
 | Worker UI                 | http://localhost:8081     |
 | History Server            | http://localhost:18080    |
 
@@ -162,11 +173,14 @@ src/pipeline/main.py        entry point: build a session, report, stop
 src/pipeline/session.py     entry point's session builder plus catalog config
 src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
-src/pipeline/io/            adapters: iceberg.py
-src/pipeline/runner/        assembly: batch.py
+src/pipeline/streams.py     Kafka topics and Schema Registry subjects
+src/pipeline/producer.py    scenarios with fixed event times and explicit pauses
+src/pipeline/avro/          the wire contract, as .avsc
+src/pipeline/io/            adapters: iceberg.py, kafka.py
+src/pipeline/runner/        assembly: batch.py, stream.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
-tests/integration/          real Iceberg tables in a temo directory; own process
+tests/integration/          real Iceberg tables, the watermark experiment, a real broker
 ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
 ci/smoke.sh                 end-to-end: submit to the cluster and assert 
@@ -192,5 +206,9 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-07-walkthrough.md`](docs/pr-07-walkthrough.md) - the Iceberg catalog, getting jars onto a Python job's classpath, and MinIO's disappearance
 - [`docs/pr-08-walkthrough.md`](docs/pr-08-walkthrough.md) - the first end-to-end run, and why `--packages` moves to the submit command
 - [`docs/pr-09-walkthrough.md`](docs/pr-09-walkthrough.md) - hidden partitioning, what it actually buys measured, and the idempotent re-run
+- [`docs/pr-10-walkthrough.md`](docs/pr-10-walkthrough.md) - Kafka in KRaft mode, the two listener problem, and keeping Avro and Spark schema in step
+- [`docs/pr-11-walkthrough.md`](docs/pr-11-walkthrough.md) - a producer with fixed event times, and the Confluent wire format written by hand
+- [`docs/pr-12-walkthrough.md`](docs/pr-12-walkthrough.md) - the streaming join: why watermarks are not enough. and the five bytes that corrupt silently
+- [`docs/pr-13-walkthrough.md`](docs/pr-13-walkthrough.md) - the watermark experiment as a test, and looking inside the state store
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
