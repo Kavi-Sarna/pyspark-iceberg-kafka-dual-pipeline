@@ -107,6 +107,9 @@ seed: ## Put the worked example into the local warehouse tables
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
 	  uv run python -m pipeline.seed
 
+watermark-demo: env ## Watch an unmatched row wait, then be released. No Docker
+	uv run python -m pipeline.watermark_demo
+
 local: warehouse seed  ## Create, seed and run the whole thing locally. No Docker
 	ICEBERG_WAREHOUSE=$(CURDIR)/.warehouse ICEBERG_CATALOG_TYPE=hadoop \
 	  uv run python -m pipeline.main --mode batch
@@ -135,7 +138,7 @@ scan: ## Scan the image for fixable HIGH/CRITICAL vulnerabilities
 	./ci/scan.sh
 
 clean: down ## Remove caches and local Spark artifacts
-	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse spark-warehouse metastore_db derby.log
+	rm -rf .pytest_cache .mypy_cache .ruff_cache .trivy .warehouse .watermark-demo spark-warehouse metastore_db derby.log
 	find . -name __pycache__ -type d -not -path './.venv/*' -exec rm -rf {} +
 
 clean-checkpoints: ## Drop only the checkpoint volume without tearing down everything
