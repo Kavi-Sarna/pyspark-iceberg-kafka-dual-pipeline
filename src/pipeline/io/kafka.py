@@ -52,6 +52,7 @@ def read_stream(
         # earliest so a restart replays the demo rather than skipping it. A
         # real deployment reads from the checkpoint and this is ignored.
         .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
         .load()
     )
     # Every streaming source reports its columns nullable, whatever schema it
