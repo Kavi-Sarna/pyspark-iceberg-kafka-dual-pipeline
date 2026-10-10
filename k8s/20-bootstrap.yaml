@@ -1,0 +1,37 @@
+# Creates the Kafka topics, the Schema Registry subjects and the Iceberg
+# namespace and tables. Idempotent, so rerunning it after a schema change is
+# the intended way to use it.
+#
+# A plain Job, not a SparkApplication: it talks to three REST and admin APIs
+# and never starts a SparkContext. Running it through the operator would
+# schedule a driver and executors to do no Spark work at all.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pipeline-bootstrap
+  namespace: pipeline
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      containers:
+        - name: bootstrap
+          image: pipeline:local
+          # The image is side-loaded with `kind load docker-image` and exists in
+          # no registry. Always would make the kubelet try to pull it and fail.
+          imagePullPolicy: IfNotPresent
+          command: ["/app/.venv/bin/python", "-m", "pipeline.bootstrap"]
+          env:
+            - { name: ICEBERG_WAREHOUSE, value: "s3://warehouse/" }
+            - { name: ICEBERG_URI, value: "http://iceberg-rest:8181" }
+            - { name: S3_ENDPOINT, value: "http://minio:9000" }
+            - { name: AWS_REGION, value: "us-east-1" }
+            - { name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081" }
+          envFrom:
+            - secretRef: { name: pipeline-credentials }
