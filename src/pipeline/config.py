@@ -22,6 +22,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from pipeline.metrics import StatsdConfig
 from pipeline.session import CatalogConfig
 from pipeline.streams import StreamConfig
 
@@ -108,6 +109,7 @@ class AppConfig:
     events: EventLog
     catalog: CatalogConfig | None
     kafka: StreamConfig | None
+    metrics: StatsdConfig
 
     @classmethod
     def load(
@@ -137,8 +139,16 @@ class AppConfig:
             retain_files=int(raw_events["retain_files"]),
             compaction_threshold=float(raw_events["compaction_threshold"]),
         )
+        raw_metrics = dict(data["metrics"])
+        metrics = StatsdConfig(
+            enabled=_flag(e, "METRICS_ENABLED", bool(raw_metrics["enabled"])),
+            host=e.get("STATSD_HOST", raw_metrics["host"]),
+            port=int(e.get("STATSD_PORT", raw_metrics["port"])),
+            prefix=raw_metrics["prefix"],
+        )
         return cls(
             tables=tables,
+            metrics=metrics,
             events=events,
             stream=stream,
             catalog=_catalog(data["catalog"], e),

@@ -1,0 +1,129 @@
+{
+  "title": "Streaming join",
+  "uid": "pipeline-stream",
+  "tags": ["pipeline"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Trigger duration by phase",
+      "description": "triggerExecution is the whole trigger; the others say where it went. Sustained triggerExecution above the trigger interval means the query is falling behind.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pipeline_stream_duration_milliseconds",
+          "legendFormat": "{{phase}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Kafka lag by partition",
+      "description": "latestOffset minus endOffset, from query progress. Spark commits no consumer-group offsets, so kafka-consumer-groups.sh reports nothing for this query.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pipeline_stream_kafka_lag_records",
+          "legendFormat": "{{topic}}/{{partition}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "State store rows",
+      "description": "Rows the join is holding because their partner may still arrive. This is what the watermark bounds; a line that only climbs is a watermark that is not advancing.",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "pipeline_stream_state_rows", "legendFormat": "held", "refId": "A" },
+        {
+          "expr": "pipeline_stream_state_rows_removed",
+          "legendFormat": "evicted this trigger",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "State store memory",
+      "description": "The answer to why a streaming job uses the memory it does.",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pipeline_stream_state_memory_bytes",
+          "legendFormat": "operator {{operator}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rows dropped by watermark",
+      "description": "Silent data loss. Spark discards rows older than the watermark without logging anything, and this is the only place it is reported.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "fillOpacity": 30, "drawStyle": "bars" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pipeline_stream_state_rows_dropped_by_watermark",
+          "legendFormat": "dropped",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput",
+      "description": "Input rate is how fast rows arrive; processed rate is how fast the query consumes them. Processed below input for any length of time is the shape of a query that will never catch up.",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "rps", "custom": { "fillOpacity": 10 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "pipeline_stream_input_rows_per_second",
+          "legendFormat": "arriving",
+          "refId": "A"
+        },
+        {
+          "expr": "pipeline_stream_processed_rows_per_second",
+          "legendFormat": "processed",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

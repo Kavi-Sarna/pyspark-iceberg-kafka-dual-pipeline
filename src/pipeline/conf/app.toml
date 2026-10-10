@@ -55,3 +55,12 @@ retain_files = 20
 # Compaction rewrites older parts, dropping events no UI page needs. Below
 # this score a rewrite is not worth the IO.
 compaction_threshold = 0.7
+
+[metrics]
+# A StreamingQueryListener is the only source for batch duration, state-store
+# size and Kafka lag. Off by default: a bare run should not emit UDP to a host
+# that is not there.
+enabled = false                          # METRICS_ENABLED
+host = "statsd"                          # STATSD_HOST
+port = 9125                              # STATSD_PORT
+prefix = "pipeline.stream"

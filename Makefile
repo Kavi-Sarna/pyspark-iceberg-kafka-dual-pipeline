@@ -81,12 +81,14 @@ image: ## Build the container image
 image-run: image ## Run the app inside the container
 	docker run --rm pipeline:local
 
-up: ## Start the local Spark cluster
-	docker compose -f docker/compose.yaml up --detach --wait 
+up: image ## Start the local Spark cluster
+	docker compose -f docker/compose.yaml up --detach --wait
 	@echo "master   http://localhost:8080"
 	@echo "worker   http://localhost:8081"
 	@echo "history  http://localhost:18080"
-	@echo "minio  	http://localhost:9001"
+	@echo "grafana  http://localhost:3000/d/pipeline-stream"
+	@echo "metrics  http://localhost:9090"
+	@echo "minio    http://localhost:9001"
 	@echo "catalog  http://localhost:8181/v1/config"
 
 down: ## Stop the cluster and drop its volumes

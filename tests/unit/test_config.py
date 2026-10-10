@@ -160,3 +160,25 @@ def test_disabling_it_says_so_rather_than_omitting_it() -> None:
 
     events = dataclasses.replace(AppConfig.load(env={}).events, enabled=False)
     assert events.spark_options() == {"spark.eventLog.enabled": "false"}
+
+
+def test_metrics_are_off_until_a_collector_is_named() -> None:
+    """Same reasoning as the event log. A bare run should not spray UDP at a
+    hostname that only resolves inside Compose."""
+    assert AppConfig.load(env={}).metrics.enabled is False
+
+
+def test_metrics_enabled_is_a_flag_not_a_string() -> None:
+    assert AppConfig.load(env={"METRICS_ENABLED": "true"}).metrics.enabled is True
+    assert AppConfig.load(env={"METRICS_ENABLED": "false"}).metrics.enabled is False
+
+
+def test_the_collector_address_is_overridable() -> None:
+    metrics = AppConfig.load(env={"STATSD_HOST": "10.0.0.5", "STATSD_PORT": "8125"}).metrics
+    assert (metrics.host, metrics.port) == ("10.0.0.5", 8125)
+
+
+def test_the_prefix_is_not_overridable_by_environment() -> None:
+    """It is half of a metric name. Changing it per deployment means the same
+    query appears as two different series and no dashboard matches both."""
+    assert AppConfig.load(env={"STATSD_PREFIX": "other"}).metrics.prefix == "pipeline.stream"
