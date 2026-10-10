@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 15 - event logs, bounded.** One image runs either mode from a flag, configuration is layered and read once, and a long-running query's event log now rolls *and* gets pruned rather than growing for as long as the query lives.
+> **Status: PR 16 - the numbers that only exist in query progress.** One image runs either mode from a flag, configuration is layered and read once, and a `StreamingQueryListener` now reports trigger duration, state store size and Kafka lag to StatsD, Prometheus and Grafana.
 > 
 > See [Status](#status).
 
@@ -44,7 +44,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Batch path on Iceberg          | 7-9   | **done**             |
 | Streaming path on Kafka        | 10-13 | **done**             |
 | One artifact, two modes        | 14    | **done**             |
-| Observability and Kubernetes   | 15-17 | **PR 15 done**       |
+| Observability and Kubernetes   | 15-17 | **PRs 15-16 done**   |
 | Operational drills             | 18    | - |
 
 
@@ -128,15 +128,18 @@ make batch      # bootstrap, then run the job on the cluster into Iceberg
 make smoke      # all of the above, with assertions, then teardown
 ```
 
-|                           |                           |
-| ------------------------- | ------------------------- |
-| Master UI                 | http://localhost:8080     |
-| MinIO console             | http://localhost:9001     |
-| Iceberg REST catalog      | http://localhost:8181     |
-| Schema Registry           | http://localhost:8085     |
-| Kafka, from the host      | http://localhost:29092    |
-| Worker UI                 | http://localhost:8081     |
-| History Server            | http://localhost:18080    |
+|                           |                                           |
+| ------------------------- | ----------------------------------------- |
+| Master UI                 | http://localhost:8080                     |
+| MinIO console             | http://localhost:9001                     |
+| Iceberg REST catalog      | http://localhost:8181                     |
+| Schema Registry           | http://localhost:8085                     |
+| Kafka, from the host      | http://localhost:29092                    |
+| Worker UI                 | http://localhost:8081                     |
+| History Server            | http://localhost:18080                    |
+| Grafana                   | http://localhost:3000/d/pipeline-stream   |
+| Prometheus                | http://localhost:9090                     |
+| statsd-exporter           | http://localhost:9102/metrics             |
 
 Every service runs the image this repo builds, not a stock Spark image, so the cluster executes your code and your Python. A dependency missing from the image fails at the build rather than as a task failure on an executor.
 
@@ -186,7 +189,9 @@ tests/integration/          real Iceberg tables, the watermark experiment, a rea
 ci/run.sh                   the pipeline contract - what "green" means
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
 ci/smoke.sh                 end-to-end: submit to the cluster and assert 
+src/pipeline/metrics.py     a StreamingQueryListener and a StatsD client
 docker/compose.yaml         local cluster: master, worker, History Server
+docker/metrics/             statsd mapping, Prometheus scrape, Grafana dashboard
 .devcontainer/              one-click Codespace demo, cluster up on start
 .github/workflows/          ci.yml calls run.sh; scan.yml schedules scan.sh
 Makefile                    thin wrapper; pins the environment
@@ -214,5 +219,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-13-walkthrough.md`](docs/pr-13-walkthrough.md) - the watermark experiment as a test, and looking inside the state store
 - [`docs/pr-14-walkthrough.md`](docs/pr-14-walkthrough.md) - layered configuration, and why the two absent keys are the switches
 - [`docs/pr-15-walkthrough.md`](docs/pr-15-walkthrough.md) - event logs: rolling is already on, retention is what actually bounds
+- [`docs/pr-16-walkthrough.md`](docs/pr-16-walkthrough.md) - streaming metrics: why there is no consumer group to check, and where lag actually lives
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

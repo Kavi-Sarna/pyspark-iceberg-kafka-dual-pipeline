@@ -1,4 +1,4 @@
-"""Entry point. parse a mode and delegate."""
+"""Entry point: parse a mode and delegate."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import sys
 from collections.abc import Sequence
 
 from pipeline.config import AppConfig
+from pipeline.metrics import MetricsListener, Statsd
 from pipeline.runner import batch, stream
 from pipeline.session import STREAM_PACKAGES, CatalogConfig, build_session
 
@@ -30,9 +31,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def report(spark: object, catalog: CatalogConfig | None) -> None:
-    log.info("spark         %s", getattr(spark, "version", "?"))
-    log.info("python        %s", sys.version.split()[0])
-    log.info("catalog       %s", f"{catalog.name} ({catalog.type})" if catalog else "none")
+    log.info("spark   %s", getattr(spark, "version", "?"))
+    log.info("python  %s", sys.version.split()[0])
+    log.info("catalog %s", f"{catalog.name} ({catalog.type})" if catalog else "none")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -63,6 +64,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             batch.run(spark, catalog.name, app.tables)
         elif args.mode == "stream":
             assert catalog is not None and streams is not None
+            if app.metrics.enabled:
+                # Registered on the session, so it sees every query, and
+                # before start so the first trigger is not missed.
+                spark.streams.addListener(MetricsListener(Statsd(app.metrics)))
+                log.info("metrics %s:%s", app.metrics.host, app.metrics.port)
             query = stream.run(spark, catalog.name, streams, app.tables, app.stream)
             if args.await_seconds:
                 query.awaitTermination(args.await_seconds)
