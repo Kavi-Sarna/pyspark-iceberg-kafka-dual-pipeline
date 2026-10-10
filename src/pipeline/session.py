@@ -7,7 +7,7 @@ configuration is the part that differs most between a laptop, CI and a cluster.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from pyspark.sql import SparkSession
@@ -45,24 +45,6 @@ class CatalogConfig:
     region: str = "us-east-1"
     access_key: str | None = None
     secret_key: str | None = None
-
-    @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> CatalogConfig | None:
-        """None when nothing is configured, so a bare `make run` stays offline."""
-        e = os.environ if env is None else env
-        warehouse = e.get("ICEBERG_WAREHOUSE")
-        if not warehouse:
-            return None
-        return cls(
-            name=e.get("ICEBERG_CATALOG", "lake"),
-            type=e.get("ICEBERG_CATALOG_TYPE", "rest"),
-            warehouse=warehouse,
-            uri=e.get("ICEBERG_URI"),
-            s3_endpoint=e.get("S3_ENDPOINT"),
-            region=e.get("AWS_REGION", "us-east-1"),
-            access_key=e.get("AWS_ACCESS_KEY_ID"),
-            secret_key=e.get("AWS_SECRET_ACCESS_KEY"),
-        )
 
 
 def catalog_options(cfg: CatalogConfig) -> dict[str, str]:

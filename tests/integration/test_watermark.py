@@ -17,11 +17,17 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
+from pipeline.config import AppConfig
 from pipeline.core.join import left_join
 from pipeline.core.schemas import DELIVERY, SHIPMENT
 from pipeline.runner import stream
 
 BASE = datetime(2026, 9, 13, 10, 0)
+
+# The packages defaults, so the tests and the job cannot disagree about how
+# long state is kept or how wide the join window is.
+SETTINGS = AppConfig.load(env={}).stream
+SETTINGS_SPEC = stream.spec_for(SETTINGS)
 
 
 def at(minutes: int) -> datetime:
@@ -61,16 +67,16 @@ class Harness:
             self.spark.readStream.schema(SHIPMENT)
             .parquet(str(self.root / "ship"))
             .dropna()
-            .withWatermark("dispatch_time", stream.LATENESS)
+            .withWatermark("dispatch_time", SETTINGS.lateness)
         )
         right = (
             self.spark.readStream.schema(DELIVERY)
             .parquet(str(self.root / "dlv"))
             .dropna()
-            .withWatermark("delivered_time", stream.LATENESS)
+            .withWatermark("delivered_time", SETTINGS.lateness)
         )
         query = (
-            left_join(left, right, stream.SPEC)
+            left_join(left, right, SETTINGS_SPEC)
             .writeStream.format("parquet")
             .outputMode("append")
             .option("path", str(self.root / "out"))

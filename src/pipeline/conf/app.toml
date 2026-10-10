@@ -1,0 +1,37 @@
+# Defaults, shipped inside the package so the image carries them.
+#
+# Override a whole file with PIPELINE_CONFIG or --config, or any single value
+# with the environment variable named beside it. Credentials are deliberately
+# absent: this file is committed, so it holds shape and never secrets.
+
+[catalog]
+# warehouse is deliberately absent. It is the switch: no warehouse means no
+# catalog, so a bare run touches no network. Set ICEBERG_WAREHOUSE, or put it
+# in an override file.
+name = "lake"                            # ICEBERG_CATALOG
+type = "rest"                            # ICEBERG_CATALOG_TYPE
+uri = "http://iceberg-rest:8181"         # ICEBERG_URI
+s3_endpoint = "http://minio:9000"        # S3_ENDPOINT
+region = "us-east-1"                     # AWS_REGION
+# access_key / secret_key come only from AWS_ACCESS_KEY_ID and
+# AWS_SECRET_ACCESS_KEY.
+
+[kafka]
+# bootstrap_servers is absent for the same reason: it is the switch.
+schema_registry = "http://schema-registry:8081"    # SCHEMA_REGISTRY_URL
+
+[tables]
+namespace = "ops"
+shipments = "shipments"
+deliveries = "deliveries"
+output = "shipment_deliveries"
+
+[stream]
+# How late an event may arrive and still join. Also how long state is kept, so
+# it is a memory setting as much as a correctness one.
+lateness = "10 minutes"
+# The time-range bound. A stream-stream left outer join will not plan without
+# one; batch leaves it unset.
+max_lag = "30 minutes"
+trigger = "10 seconds"
+checkpoint = "/var/lib/pipeline/checkpoints/stream"

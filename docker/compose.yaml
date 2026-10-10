@@ -369,6 +369,7 @@ services:
       AWS_REGION: us-east-1
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      CHECKPOINT_LOCATION: /var/lib/pipeline/checkpoints/stream
     command:
       - /bin/bash
       - -c
@@ -383,7 +384,6 @@ services:
         --conf spark.sql.shuffle.partitions=2
         "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
         --mode stream
-        --checkpoint /var/lib/pipeline/checkpoints/stream
         --await-seconds "$${AWAIT_SECONDS:-0}"
 
 

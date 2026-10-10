@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 13 - the streaming phase is finished.** Both modes run off the same `left_join`, and the streaming semantics are assertions rather than claims: the unmatched shipment waits, then appears, and the row waiting in the state store can be queried by name.
+> **Status: PR 14 - one artifact, two modes.** The same image runs batch or stream from a flag, and everything either needs is read from `conf/app.toml`, a layered with an override file and the environment.
 > 
 > See [Status](#status).
 
@@ -43,7 +43,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Pure core, no I/O              | 5-6   | **done**             |
 | Batch path on Iceberg          | 7-9   | **done**             |
 | Streaming path on Kafka        | 10-13 | **done**             |
-| One artifact, two modes        | 14    | - |
+| One artifact, two modes        | 14    | **done**             |
 | Observability and Kubernetes   | 15-17 | - |
 | Operational drills             | 18    | - |
 
@@ -173,6 +173,8 @@ src/pipeline/main.py        entry point: build a session, report, stop
 src/pipeline/session.py     entry point's session builder plus catalog config
 src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
+src/pipeline/config.py      all configuration: packages TOML, file, environment
+src/pipeline/conf           the shipped defaults
 src/pipeline/streams.py     Kafka topics and Schema Registry subjects
 src/pipeline/producer.py    scenarios with fixed event times and explicit pauses
 src/pipeline/avro/          the wire contract, as .avsc
@@ -210,5 +212,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-11-walkthrough.md`](docs/pr-11-walkthrough.md) - a producer with fixed event times, and the Confluent wire format written by hand
 - [`docs/pr-12-walkthrough.md`](docs/pr-12-walkthrough.md) - the streaming join: why watermarks are not enough. and the five bytes that corrupt silently
 - [`docs/pr-13-walkthrough.md`](docs/pr-13-walkthrough.md) - the watermark experiment as a test, and looking inside the state store
+- [`docs/pr-14-walkthrough.md`](docs/pr-14-walkthrough.md) - layered configuration, and why the two absent keys are the switches
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

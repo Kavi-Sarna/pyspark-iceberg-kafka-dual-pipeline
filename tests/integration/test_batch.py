@@ -14,13 +14,15 @@ import pytest
 from pyspark.sql import SparkSession
 
 from pipeline.bootstrap import create_tables
+from pipeline.config import AppConfig
 from pipeline.core.schemas import DELIVERY, JOINED, SHIPMENT
 from pipeline.io.iceberg import read, table_name
 from pipeline.runner import batch
 
 from .conftest import CATALOG
 
-OUTPUT = table_name(CATALOG, batch.NAMESPACE, batch.OUTPUT)
+TABLES = AppConfig.load(env={}).tables
+OUTPUT = table_name(CATALOG, TABLES.namespace, TABLES.output)
 
 
 def at(minutes: int) -> datetime:
@@ -50,7 +52,7 @@ def test_output_table_matches_the_declared_schema(iceberg: SparkSession) -> None
 
 def test_a_run_against_empty_tables_is_green(iceberg: SparkSession) -> None:
     """The whole point of this PR. Nothing to join, and it still succeeds."""
-    assert batch.run(iceberg, CATALOG) == 0
+    assert batch.run(iceberg, CATALOG, TABLES) == 0
     assert read(iceberg, OUTPUT).count() == 0
 
 
@@ -62,7 +64,7 @@ def test_a_populated_run_writes_the_join(iceberg: SparkSession) -> None:
             ("shp-3", "carrier-c", at(10)),
         ],
         SHIPMENT,
-    ).writeTo(table_name(CATALOG, batch.NAMESPACE, batch.SHIPMENTS)).append()
+    ).writeTo(table_name(CATALOG, TABLES.namespace, TABLES.shipments)).append()
 
     iceberg.createDataFrame(
         [
@@ -72,9 +74,9 @@ def test_a_populated_run_writes_the_join(iceberg: SparkSession) -> None:
             ("dlv-4", "shp-9", at(20)),
         ],
         DELIVERY,
-    ).writeTo(table_name(CATALOG, batch.NAMESPACE, batch.DELIVERIES)).append()
+    ).writeTo(table_name(CATALOG, TABLES.namespace, TABLES.deliveries)).append()
 
-    assert batch.run(iceberg, CATALOG) == 4
+    assert batch.run(iceberg, CATALOG, TABLES) == 4
 
     rows = read(iceberg, OUTPUT).orderBy("shipment_id", "delivery_id").collect()
     assert [(r["shipment_id"], r["delivery_id"]) for r in rows] == [
@@ -97,7 +99,7 @@ def test_each_run_adds_a_snapshot(iceberg: SparkSession) -> None:
     Two runs have happened by now, the empty one and the populated one.
     """
     before = snapshots(iceberg, OUTPUT)
-    batch.run(iceberg, CATALOG)
+    batch.run(iceberg, CATALOG, TABLES)
     assert snapshots(iceberg, OUTPUT) == before + 1
 
 
@@ -108,7 +110,7 @@ def test_returning_is_a_fixed_point(iceberg: SparkSession) -> None:
     so the history is intact; it is the data that stops growing.
     """
     assert read(iceberg, OUTPUT).count() == 4
-    batch.run(iceberg, CATALOG)
+    batch.run(iceberg, CATALOG, TABLES)
     assert read(iceberg, OUTPUT).count() == 4
 
 

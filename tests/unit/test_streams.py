@@ -14,7 +14,6 @@ from pipeline.streams import (
     REPLICATION,
     SHIPMENTS,
     TOPICS,
-    StreamConfig,
     load_schema,
     subject_for,
 )
@@ -72,15 +71,3 @@ def test_both_topics_are_declared() -> None:
     assert set(TOPICS) == {SHIPMENTS, DELIVERIES}
     assert all(spec.partitions > 1 for spec in TOPICS.values())
     assert REPLICATION == 1
-
-
-def test_from_env_returns_none_when_kafka_is_unconfigured() -> None:
-    """A batch-only deployment must not need Kafka settings."""
-    assert StreamConfig.from_env({}) is None
-    assert StreamConfig.from_env({"SCHEMA_REGISTRY_URL": "http://x:8081"}) is None
-
-
-def test_from_env_defaults_the_registry() -> None:
-    cfg = StreamConfig.from_env({"KAFKA_BOOTSTRAP_SERVERS": "kafka:9092"})
-    assert cfg is not None
-    assert cfg.schema_registry == "http://schema-registry:8081"

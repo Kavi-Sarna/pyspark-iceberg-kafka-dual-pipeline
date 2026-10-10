@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 
+from pipeline.config import AppConfig
 from pipeline.core.schemas import DELIVERY, JOINED, SHIPMENT
-from pipeline.session import CatalogConfig, build_session
-from pipeline.streams import StreamConfig
+from pipeline.session import build_session
 from pipeline.streams import setup as setup_streams
 
 log = logging.getLogger("pipeline.bootstrap")
@@ -71,8 +71,8 @@ def create_tables(spark: SparkSession, catalog: str) -> None:
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s - %(message)s")
 
-    catalog = CatalogConfig.from_env()
-    streams = StreamConfig.from_env()
+    app = AppConfig.load()
+    catalog, streams = app.catalog, app.kafka
     if catalog is None and streams is None:
         log.error("nothing configured; set ICEBERG_WAREHOUSE or KAFKA_BOOTSTRAP_SERVERS")
         return 1
