@@ -1,0 +1,69 @@
+# StatsD names are dotted strings. Prometheus wants a name and labels, and
+# this file is where one becomes the other.
+#
+# Without a mapping, statsd-exporter still works: it replaces dots with
+# underscores and you get pipeline_stream_lag_ops_shipments_0 as a distinct
+# metric per partition, which cannot be summed or graphed as one series.
+# Mapping pulls the varying part out into a label instead.
+
+defaults:
+  # Every metric here is a gauge, sampled once per trigger.
+  #
+  # Without a TTL a gauge keeps its last value forever, so a stopped query
+  # shows a flat line at whatever lag it had when it died. Three missed
+  # triggers and the series disappears, which is the honest answer.
+  #
+  # Coupled to [stream].trigger in app.toml, which is 10 seconds, and nothing
+  # enforces the pair. A trigger slower than about 15s would expire gauges
+  # between healthy triggers and blank the graphs of a query that is fine.
+  ttl: 30s
+
+mappings:
+  # pipeline.stream.duration.addBatch -> phase="addBatch"
+  - match: "pipeline.stream.duration.*"
+    name: "pipeline_stream_duration_milliseconds"
+    labels:
+      phase: "$1"
+
+  # The index is the position of the stateful operator in the plan. Our query
+  # has one, the stream-stream join, but the name keeps it honest.
+  - match: "pipeline.stream.state.*.rows"
+    name: "pipeline_stream_state_rows"
+    labels:
+      operator: "$1"
+
+  - match: "pipeline.stream.state.*.memory_bytes"
+    name: "pipeline_stream_state_memory_bytes"
+    labels:
+      operator: "$1"
+
+  - match: "pipeline.stream.state.*.rows_removed"
+    name: "pipeline_stream_state_rows_removed"
+    labels:
+      operator: "$1"
+
+  # Non-zero means rows arrived after the watermark and were discarded.
+  - match: "pipeline.stream.state.*.rows_dropped_by_watermark"
+    name: "pipeline_stream_state_rows_dropped_by_watermark"
+    labels:
+      operator: "$1"
+
+  # Our topics contain a dot, so ops.shipments.0 is three glob segments and
+  # the topic label has to be rebuilt from the first two. Update this if a
+  # topic with any other number of dots is ever added: a name that matches no
+  # mapping is not dropped, it falls back to dots-as-underscores, so the only
+  # symptom is a label quietly going missing.
+  - match: "pipeline.stream.lag.*.*.*"
+    name: "pipeline_stream_kafka_lag_records"
+    labels:
+      topic: "$1.$2"
+      partition: "$3"
+
+  - match: "pipeline.stream.num_input_rows"
+    name: "pipeline_stream_input_rows"
+
+  - match: "pipeline.stream.input_rows_per_second"
+    name: "pipeline_stream_input_rows_per_second"
+
+  - match: "pipeline.stream.processed_rows_per_second"
+    name: "pipeline_stream_processed_rows_per_second"

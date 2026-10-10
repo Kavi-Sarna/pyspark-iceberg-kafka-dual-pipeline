@@ -35,3 +35,32 @@ lateness = "10 minutes"
 max_lag = "30 minutes"
 trigger = "10 seconds"
 checkpoint = "/var/lib/pipeline/checkpoints/stream"
+
+[events]
+# Event logs feed the History Server. A streaming query runs for weeks, so the
+# question is not whether the log rolls but whether anything deletes the parts.
+# Off by default. Spark refuses to start if the directory does not exist, so
+# a packaged default of true would make a bare run depend on a path nobody
+# created. The Compose stack sets EVENT_LOG_ENABLED=true, where the volume is.
+enabled = false                          # EVENT_LOG_ENABLED
+dir = "/tmp/spark-events"                # EVENT_LOG_DIR
+# Rolling splits one growing file into many. Spark 4 does this by default;
+# setting it is documentation, not a change.
+rolling = true
+max_file_size = "128m"
+compression = "zstd"
+# The one that actually bounds disk. Spark's default is Int.MaxValue, so every
+# part file is kept forever and rolling on its own changes nothing.
+retain_files = 20
+# Compaction rewrites older parts, dropping events no UI page needs. Below
+# this score a rewrite is not worth the IO.
+compaction_threshold = 0.7
+
+[metrics]
+# A StreamingQueryListener is the only source for batch duration, state-store
+# size and Kafka lag. Off by default: a bare run should not emit UDP to a host
+# that is not there.
+enabled = false                          # METRICS_ENABLED
+host = "statsd"                          # STATSD_HOST
+port = 9125                              # STATSD_PORT
+prefix = "pipeline.stream"

@@ -34,17 +34,18 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean stream-clean clean-checkpoints
+.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean k8s-validate kind-up kind-load k8s-up k8s-stream k8s-batch k8s-logs k8s-ui k8s-down kind-down stream-clean clean-checkpoints
 
 help: ## Show this help
-	@grep -hE '^[a-z-]+:.*?##' $(MAKEFILE_LIST) \
-	  awk -F':.*?## ' '{printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-z0-9-]+:.*?## ' $(MAKEFILE_LIST) \
+	  | awk -F':.*?## ' '{printf "  \033[36m%-8s\033[0m %s\n", $$1, $$2}'
 
 env: ## Show and validate the resolved environment
 	@echo "JAVA_HOME                = $${JAVA_HOME:-(unset)}"
 	@echo "SPARK_HOME               = $${SPARK_HOME:-(unset)}   <- must be unset"
 	@echo "PYSPARK_PYTHON           = $(PYSPARK_PYTHON)"
 	@echo "PYSPARK_DRIVER_PYTHON    = $(PYSPARK_DRIVER_PYTHON)"
+	@echo "SPARK_LOCAL_IP           = $(SPARK_LOCAL_IP)"
 	@test -n "$${JAVA_HOME:-}" \
 	  || { echo "ERROR: no JAVA_HOME. Install a JDK 17 or 21."; exit 1; }
 	@test -x "$${JAVA_HOME}/bin/java" \
@@ -81,12 +82,14 @@ image: ## Build the container image
 image-run: image ## Run the app inside the container
 	docker run --rm pipeline:local
 
-up: ## Start the local Spark cluster
-	docker compose -f docker/compose.yaml up --detach --wait 
+up: image ## Start the local Spark cluster
+	docker compose -f docker/compose.yaml up --detach --wait
 	@echo "master   http://localhost:8080"
 	@echo "worker   http://localhost:8081"
 	@echo "history  http://localhost:18080"
-	@echo "minio  	http://localhost:9001"
+	@echo "grafana  http://localhost:3000/d/pipeline-stream"
+	@echo "metrics  http://localhost:9090"
+	@echo "minio    http://localhost:9001"
 	@echo "catalog  http://localhost:8181/v1/config"
 
 down: ## Stop the cluster and drop its volumes
@@ -130,6 +133,83 @@ batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 stream: bootstrap ## Run the streaming job. AWAIT_SECONDS=60 to stop after a minute
 	AWAIT_SECONDS=$(AWAIT_SECONDS) \
 	  docker compose -f docker/compose.yaml run --rm stream
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes
+#
+# The same image, run by the Spark Operator instead of by Compose. kind is a
+# cluster made of containers, so none of this needs a cloud account.
+# ---------------------------------------------------------------------------
+
+OPERATOR_VERSION ?= 2.5.2
+
+k8s-validate: ## Check the manifests against the published Kubernetes and operator schemas
+	./ci/k8s.sh
+
+# Every target below applies manifests, and two of them delete things. kind
+# names its context deterministically, so there is no reason to find out
+# afterwards that kubectl was pointed somewhere else.
+KIND_CONTEXT := kind-pipeline
+
+define require-kind-context
+	@ctx="$$(kubectl config current-context 2>/dev/null || true)"; \
+	if [ "$$ctx" != "$(KIND_CONTEXT)" ]; then \
+	  echo "ERROR: kubectl context is '$$ctx', expected '$(KIND_CONTEXT)'." >&2; \
+	  echo "       Run 'make kind-up', or 'kubectl config use-context $(KIND_CONTEXT)'." >&2; \
+	  exit 1; \
+	fi
+endef
+
+kind-up: image ## Create the kind cluster, install the operator, load the image
+	kind create cluster --config k8s/kind.yaml
+	helm repo add spark-operator https://kubeflow.github.io/spark-operator --force-update
+	helm upgrade --install spark-operator spark-operator/spark-operator \
+	  --version $(OPERATOR_VERSION) \
+	  --namespace spark-operator --create-namespace \
+	  --set "spark.jobNamespaces={pipeline}" \
+	  --wait
+	kubectl apply -f k8s/00-namespace.yaml
+	$(MAKE) kind-load
+
+kind-load: image ## Side-load the freshly built image into the cluster nodes
+	$(require-kind-context)
+	kind load docker-image pipeline:local --name pipeline
+
+k8s-up: ## Start the data stack in the cluster and create topics and tables
+	$(require-kind-context)
+	kubectl apply -f k8s/10-stack.yaml
+	kubectl -n pipeline rollout status deploy/minio deploy/iceberg-rest deploy/kafka deploy/schema-registry --timeout=300s
+	kubectl -n pipeline delete job pipeline-bootstrap --ignore-not-found
+	kubectl apply -f k8s/20-bootstrap.yaml
+	kubectl -n pipeline wait --for=condition=complete job/pipeline-bootstrap --timeout=300s
+
+k8s-stream: ## Submit the streaming join as a SparkApplication
+	$(require-kind-context)
+	kubectl apply -f k8s/30-stream.yaml
+	@echo "watch:  kubectl -n pipeline get sparkapplication pipeline-stream -w"
+	@echo "logs:   make k8s-logs"
+
+k8s-batch: ## Install the scheduled batch job, and run one now
+	$(require-kind-context)
+	kubectl apply -f k8s/40-batch.yaml
+	@echo "runs:   kubectl -n pipeline get sparkapplication -l sparkoperator.k8s.io/scheduled-app-name=pipeline-batch"
+
+k8s-logs: ## Follow the streaming driver's logs
+	$(require-kind-context)
+	kubectl -n pipeline logs -f -l spark-role=driver,sparkoperator.k8s.io/app-name=pipeline-stream
+
+k8s-ui: ## Port-forward the streaming driver's Spark UI to localhost:4040
+	$(require-kind-context)
+	kubectl -n pipeline port-forward svc/pipeline-stream-ui-svc 4040:4040
+
+k8s-down: ## Delete the applications but leave the cluster up
+	$(require-kind-context)
+	kubectl delete -f k8s/40-batch.yaml -f k8s/30-stream.yaml --ignore-not-found
+
+kind-down: ## Destroy the cluster
+	kind delete cluster --name pipeline
+
 
 smoke: ## Bring up a cluster, submit, assert, tear down
 	./ci/smoke.sh

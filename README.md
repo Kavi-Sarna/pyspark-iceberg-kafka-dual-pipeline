@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 14 - one artifact, two modes.** The same image runs batch or stream from a flag, and everything either needs is read from `conf/app.toml`, a layered with an override file and the environment.
+> **Status: PR 17 - the same image, run by kubernetes.** One image runs either mode from a flag, configuration is layered and read once, streaming metrics reach Grafana, and the two modes now deploy to a `kind` cluster through the Spark Operator: a `SparkApplication` for the stream, a `ScheduledSparkApplication` for the batch.
 > 
 > See [Status](#status).
 
@@ -44,7 +44,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Batch path on Iceberg          | 7-9   | **done**             |
 | Streaming path on Kafka        | 10-13 | **done**             |
 | One artifact, two modes        | 14    | **done**             |
-| Observability and Kubernetes   | 15-17 | - |
+| Observability and Kubernetes   | 15-17 | **done**             |
 | Operational drills             | 18    | - |
 
 
@@ -128,19 +128,39 @@ make batch      # bootstrap, then run the job on the cluster into Iceberg
 make smoke      # all of the above, with assertions, then teardown
 ```
 
-|                           |                           |
-| ------------------------- | ------------------------- |
-| Master UI                 | http://localhost:8080     |
-| MinIO console             | http://localhost:9001     |
-| Iceberg REST catalog      | http://localhost:8181     |
-| Schema Registry           | http://localhost:8085     |
-| Kafka, from the host      | http://localhost:29092    |
-| Worker UI                 | http://localhost:8081     |
-| History Server            | http://localhost:18080    |
+|                           |                                           |
+| ------------------------- | ----------------------------------------- |
+| Master UI                 | http://localhost:8080                     |
+| MinIO console             | http://localhost:9001                     |
+| Iceberg REST catalog      | http://localhost:8181                     |
+| Schema Registry           | http://localhost:8085                     |
+| Kafka, from the host      | http://localhost:29092                    |
+| Worker UI                 | http://localhost:8081                     |
+| History Server            | http://localhost:18080                    |
+| Grafana                   | http://localhost:3000/d/pipeline-stream   |
+| Prometheus                | http://localhost:9090                     |
+| statsd-exporter           | http://localhost:9102/metrics             |
 
 Every service runs the image this repo builds, not a stock Spark image, so the cluster executes your code and your Python. A dependency missing from the image fails at the build rather than as a task failure on an executor.
 
 `make smoke` is the check behind *`main` is always runnable*: it asserts the job reported the cluster master, and that the master itself recorded a completed application. Exit zero alone would pass even if the job quitely ran locally.
+
+
+## Kubernetes
+
+```bash
+make k8s-validate   # check the manifests; no cluster needed
+make kind-up        # cluster, Spark Operator, image side-loaded
+make k8s-up         # MinIO, catalog, Kafka, registry, then topics and tables
+make k8s-stream     # the streaming join as a SparkApplication
+make k8s-batch      # the batch join, every ten minutes
+make k8s-logs       # follow the driver
+make kind-down      # destroy it all
+```
+
+Every target that touches a cluster refuses to run unless the current kubectl context is `kind-pipeline`. These manifests carry demo credentials and two of the targets delete things.
+
+The Services are named `minio`, `iceberg-rest`, `kafka` and `schema-registry` - the Compose service names, which are the hostnames already in the packaged `app.toml`. Nothing about the job's configuration changes between the two.
 
 
 ## Running it without installing anything 
@@ -184,9 +204,13 @@ tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 tests/integration/          real Iceberg tables, the watermark experiment, a real broker
 ci/run.sh                   the pipeline contract - what "green" means
+ci/k8s.sh                   manifest against the published Kubernetes and operator schemas
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
 ci/smoke.sh                 end-to-end: submit to the cluster and assert 
+src/pipeline/metrics.py     a StreamingQueryListener and a StatsD client
+k8s/                        kind cluster, the Spark Operator CRs, and what they talk to
 docker/compose.yaml         local cluster: master, worker, History Server
+docker/metrics/             statsd mapping, Prometheus scrape, Grafana dashboard
 .devcontainer/              one-click Codespace demo, cluster up on start
 .github/workflows/          ci.yml calls run.sh; scan.yml schedules scan.sh
 Makefile                    thin wrapper; pins the environment
@@ -213,5 +237,8 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-12-walkthrough.md`](docs/pr-12-walkthrough.md) - the streaming join: why watermarks are not enough. and the five bytes that corrupt silently
 - [`docs/pr-13-walkthrough.md`](docs/pr-13-walkthrough.md) - the watermark experiment as a test, and looking inside the state store
 - [`docs/pr-14-walkthrough.md`](docs/pr-14-walkthrough.md) - layered configuration, and why the two absent keys are the switches
+- [`docs/pr-15-walkthrough.md`](docs/pr-15-walkthrough.md) - event logs: rolling is already on, retention is what actually bounds
+- [`docs/pr-16-walkthrough.md`](docs/pr-16-walkthrough.md) - streaming metrics: why there is no consumer group to check, and where lag actually lives
+- [`docs/pr-17-walkthrough.md`](docs/pr-17-walkthrough.md) - the Spark Operator: what the executors inhert, and a manifest that validates but cannot run
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

@@ -61,6 +61,10 @@ services:
     environment:
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=/tmp/spark-events
+        -Dspark.history.fs.eventLog.rolling.maxFilesToRetain=20
+        -Dspark.history.fs.eventLog.rolling.compaction.score.threshold=0.7
+        -Dspark.history.fs.cleaner.enabled=true
+        -Dspark.history.fs.cleaner.maxAge=7d
     volumes:
       - spark-events:/tmp/spark-events
     ports:
@@ -357,10 +361,15 @@ services:
         condition: service_healthy
       spark-master:
         condition: service_healthy
+      # Not a hard dependency - UDP to a host that is not there is simply
+      # dropped - but starting it means the first trigger is already graphed.
+      statsd:
+        condition: service_started
     volumes:
       - spark-events:/tmp/spark-events
       - checkpoints:/var/lib/pipeline/checkpoints
     environment:
+      EVENT_LOG_ENABLED: "true"
       ICEBERG_WAREHOUSE: s3://warehouse/
       ICEBERG_URI: http://iceberg-rest:8181
       S3_ENDPOINT: http://minio:9000
@@ -370,6 +379,10 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       CHECKPOINT_LOCATION: /var/lib/pipeline/checkpoints/stream
+      # The listener runs in the driver, which is this container, so the
+      # metrics leave from here and not from the executors.
+      METRICS_ENABLED: "true"
+      STATSD_HOST: statsd
     command:
       - /bin/bash
       - -c
@@ -385,6 +398,58 @@ services:
         "$$(/app/.venv/bin/python -c 'import pipeline.main as m; print(m.__file__)')"
         --mode stream
         --await-seconds "$${AWAIT_SECONDS:-0}"
+
+
+  # --- Metrics -------------------------------------------------------------
+  # The stand-in for Datadog. StatsD is the protocol the driver speaks,
+  # statsd-exporter turns it into Prometheus metrics, Prometheus scrapes and
+  # stores them, Grafana draws them. Four hops, because that is the shape of
+  # the real thing and each hop is somewhere a metric can be lost.
+
+  statsd:
+    image: prom/statsd-exporter:v0.28.0@sha256:4e7a1f00b9b23ef0c5b4fdbb7f4748bdc218cfdff04acc8033bc5b9f7c15009d
+    command:
+      - --statsd.mapping-config=/etc/statsd/mapping.yaml
+      - --statsd.listen-udp=:9125
+      - --web.listen-address=:9102
+    volumes:
+      - ./metrics/statsd-mapping.yaml:/etc/statsd/mapping.yaml:ro
+    ports:
+      - "9102:9102" # the metrics Prometheus scrapes, useful to curl directly
+      - "9125:9125/udp"
+
+  prometheus:
+    image: prom/prometheus:v3.13.4@sha256:87861b8cf91579109319ebc300f3f1060e6da9c05d6ae8ad15a20c879e84e32e
+    command:
+      - --config.file=/etc/prometheus/prometheus.yaml
+      # No persistence between runs on purpose: each demo starts empty, so a
+      # graph can only show what this run produced.
+      - --storage.tsdb.retention.time=6h
+    volumes:
+      - ./metrics/prometheus.yaml:/etc/prometheus/prometheus.yaml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - statsd
+
+  grafana:
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
+    environment:
+      # Local demo only. Anonymous admin exists so the dashboard opens with no
+      # login; it is why none of these ports should ever be published beyond
+      # localhost.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_DEFAULT_THEME: dark
+    volumes:
+      - ./metrics/grafana-datasource.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
+      - ./metrics/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/pipeline.yaml:ro
+      - ./metrics/dashboards:/etc/grafana/provisioning/dashboards/files:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
 
 
 volumes:
