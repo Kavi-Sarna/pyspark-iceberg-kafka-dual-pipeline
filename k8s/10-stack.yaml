@@ -1,0 +1,259 @@
+# What the job talks to: object storage, the Iceberg catalog, a broker and a
+# schema registry. Same images and same digests as docker/compose.yaml.
+#
+# The Services are named minio, iceberg-rest, kafka and schema-registry - the
+# Compose service names, exactly. In-namespace DNS then resolves the same short
+# hostnames the packaged app.toml already contains, so nothing about the job's
+# configuration changes between Compose and Kubernetes. That is the test of
+# whether configuration was externalized properly in PR 14.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: pipeline
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 4Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: minio }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z@sha256:b6bfe7239bfc83fb90d31612d9704d86039dd714f7904b3f1ad68f211e602372
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef: { name: pipeline-credentials, key: AWS_ACCESS_KEY_ID }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: pipeline-credentials, key: AWS_SECRET_ACCESS_KEY }
+          ports:
+            - { containerPort: 9000, name: s3 }
+            - { containerPort: 9001, name: console }
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: 9000 }
+            periodSeconds: 3
+          volumeMounts:
+            - { name: data, mountPath: /data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: minio-data }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: pipeline
+spec:
+  selector: { app: minio }
+  ports:
+    - { name: s3, port: 9000, targetPort: 9000 }
+    - { name: console, port: 9001, targetPort: 9001 }
+
+---
+# Creates the bucket and exits. The retry loop is also how it waits for MinIO.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init
+  namespace: pipeline
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: mc
+          image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              until mc alias set local http://minio:9000 "$AWS_ACCESS_KEY_ID" "$AWS_SECRET_ACCESS_KEY";
+              do echo "waiting for minio"; sleep 2; done &&
+              mc mb --ignore-existing local/warehouse &&
+              echo "bucket ready"
+          envFrom:
+            - secretRef: { name: pipeline-credentials }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iceberg-rest
+  namespace: pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: iceberg-rest }
+  template:
+    metadata:
+      labels: { app: iceberg-rest }
+    spec:
+      containers:
+        - name: iceberg-rest
+          image: apache/iceberg-rest-fixture:1.10.1@sha256:f7d679d30ac9c640bdeb2c015dff533cd3c8f1c7d491ebcb5d436f9a42db1d6f
+          env:
+            # CATALOG_* maps onto catalog properties: one _ becomes a dot, two
+            # become a dash. CATALOG_IO__IMPL is the io-impl property.
+            - { name: CATALOG_WAREHOUSE, value: "s3://warehouse/" }
+            - { name: CATALOG_IO__IMPL, value: "org.apache.iceberg.aws.s3.S3FileIO" }
+            - { name: CATALOG_S3_ENDPOINT, value: "http://minio:9000" }
+            - { name: CATALOG_S3_PATH__STYLE__ACCESS, value: "true" }
+            - { name: AWS_REGION, value: "us-east-1" }
+          envFrom:
+            - secretRef: { name: pipeline-credentials }
+          ports:
+            - { containerPort: 8181, name: http }
+          readinessProbe:
+            tcpSocket: { port: 8181 }
+            periodSeconds: 3
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: iceberg-rest
+  namespace: pipeline
+spec:
+  selector: { app: iceberg-rest }
+  ports:
+    - { name: http, port: 8181, targetPort: 8181 }
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+  namespace: pipeline
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 4Gi
+
+---
+# KRaft, one node acting as both broker and controller, which is only sane on a
+# laptop. A real broker is a StatefulSet: the controller quorum is addressed by
+# stable pod identity, and a Deployment has none. One replica behind a Service
+# gets away with it because the quorum has exactly one member, named by the
+# Service rather than by the pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  namespace: pipeline
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: kafka }
+  template:
+    metadata:
+      labels: { app: kafka }
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:4.2.2@sha256:1213eb3943d551e5ed1fca7a4e109001cee35770b66a02a0c37a8964efe09b69
+          env:
+            - { name: KAFKA_NODE_ID, value: "1" }
+            - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
+            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@kafka:9093" }
+            - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
+            - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "INTERNAL" }
+            - { name: KAFKA_LISTENERS, value: "INTERNAL://:9092,CONTROLLER://:9093" }
+            # One listener here, not two. In Compose a second listener existed
+            # so the host could reach the broker; in-cluster there is no host,
+            # and `kubectl port-forward` reaches 9092 directly.
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "INTERNAL://kafka:9092" }
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT" }
+            # One broker cannot replicate anything, so every internal topic must
+            # ask for one copy. The defaults ask for three and it refuses.
+            - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1" }
+            - { name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0" }
+            - { name: KAFKA_LOG_DIRS, value: "/var/lib/kafka/data" }
+          ports:
+            - { containerPort: 9092, name: internal }
+          readinessProbe:
+            exec:
+              command: ["/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/kafka/data }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: kafka-data }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: pipeline
+spec:
+  selector: { app: kafka }
+  ports:
+    - { name: internal, port: 9092, targetPort: 9092 }
+    - { name: controller, port: 9093, targetPort: 9093 }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-registry
+  namespace: pipeline
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: schema-registry }
+  template:
+    metadata:
+      labels: { app: schema-registry }
+    spec:
+      containers:
+        - name: schema-registry
+          image: confluentinc/cp-schema-registry:7.9.10@sha256:ae63c314e3f78f78d5bdce8c64c0f98ea1dc4d358ef52de2fdae56cda7e82ec0
+          env:
+            - { name: SCHEMA_REGISTRY_HOST_NAME, value: "schema-registry" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "PLAINTEXT://kafka:9092" }
+            - { name: SCHEMA_REGISTRY_LISTENERS, value: "http://0.0.0.0:8081" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR, value: "1" }
+          ports:
+            - { containerPort: 8081, name: http }
+          readinessProbe:
+            httpGet: { path: /subjects, port: 8081 }
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-registry
+  namespace: pipeline
+spec:
+  selector: { app: schema-registry }
+  ports:
+    - { name: http, port: 8081, targetPort: 8081 }

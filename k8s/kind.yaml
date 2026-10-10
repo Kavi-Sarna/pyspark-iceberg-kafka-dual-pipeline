@@ -1,0 +1,12 @@
+# A single-node cluster. One node is why the checkpoint PVC below works at all:
+# ReadWriteOnce means one node, not one pod, so driver and executors can share
+# it. On a real cluster that assumption breaks and the checkpoint has to move.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: pipeline
+
+nodes:
+  - role: control-plane
+    # Pinned by digest, like every other image in this repo. v1.35 matches the
+    # kubectl most people will have; kind only guarantees skew of one minor.
+    image: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0

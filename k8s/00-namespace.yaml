@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: pipeline
+
+---
+# The driver creates and deletes executor pods itself - that is what "cluster
+# mode on Kubernetes" means, and it is why a driver needs an identity with
+# permissions rather than just a pod spec.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spark
+  namespace: pipeline
+
+---
+# Namespace-scoped and verb-by-verb rather than a ClusterRole, so what the
+# driver can reach is visible here instead of inherited.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spark-driver
+  namespace: pipeline
+rules:
+  # Executors. The driver creates them, watches them and deletes them when the
+  # application ends or when dynamic allocation scales down.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete", "deletecollection"]
+  # The driver reads executor logs when an executor dies, to attribute failures.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # The headless service executors use to reach the driver's block manager.
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # Spark ships the driver's resolved configuration to executors as a ConfigMap.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spark-driver
+  namespace: pipeline
+subjects:
+  - kind: ServiceAccount
+    name: spark
+    namespace: pipeline
+roleRef:
+  kind: Role
+  name: spark-driver
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Demo credentials for a cluster that exists on one laptop and is destroyed by
+# `make kind-down`. They are committed because they unlock nothing; a real
+# deployment takes them from a secret store and this manifest does not exist.
+#
+# The point worth keeping is the shape: the job reads them from the environment
+# and never from app.toml, so the same image runs here and in production with
+# the credential path unchanged.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pipeline-credentials
+  namespace: pipeline
+type: Opaque
+stringData:
+  AWS_ACCESS_KEY_ID: pipeline-local
+  AWS_SECRET_ACCESS_KEY: pipeline-local-secret
+
+---
+# Structured Streaming checkpoints rely on rename being atomic and object
+# stores have no such operation, so this is a volume rather than s3://. It must
+# outlive the driver pod: that is the whole point of a checkpoint.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pipeline-checkpoint
+  namespace: pipeline
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi

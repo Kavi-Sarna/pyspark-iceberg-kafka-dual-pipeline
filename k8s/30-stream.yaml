@@ -1,0 +1,112 @@
+# The streaming join, as a custom resource. The operator turns this into a
+# spark-submit, the driver pod it produces creates its own executor pods, and
+# the whole thing is one object you can kubectl get.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: SparkApplication
+metadata:
+  name: pipeline-stream
+  namespace: pipeline
+spec:
+  type: Python
+  pythonVersion: "3"
+  mode: cluster
+  sparkVersion: 4.0.4
+
+  image: pipeline:local
+  imagePullPolicy: IfNotPresent
+
+  # local:// means "already inside the image", not "on the machine running
+  # kubectl". Nothing is uploaded. The path is where `uv sync --no-editable`
+  # puts the package, which is why the image installs it that way rather than
+  # as an editable pointer to /app/src.
+  mainApplicationFile: local:///app/.venv/lib/python3.12/site-packages/pipeline/main.py
+  # The checkpoint location is configuration, not an argument: it comes from
+  # [stream].checkpoint in app.toml, overridable with CHECKPOINT_LOCATION. It
+  # has to agree with the volumeMounts below, which is a test rather than a
+  # comment.
+  arguments:
+    - --mode
+    - stream
+
+  # The jars have to be requested here and not in the session builder. PySpark
+  # starts the JVM at getOrCreate(), so spark.jars.packages set from the builder
+  # arrives after the classpath is fixed and is silently ignored under
+  # spark-submit - which is exactly what the operator runs. deps.packages
+  # becomes --packages on the submit command line, which is read in time.
+  #
+  # They resolve from Maven Central on every driver and executor start. Baking
+  # them into the image is the right answer for anything that restarts often;
+  # this keeps the image the same one Compose runs.
+  deps:
+    packages:
+      - org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0
+      - org.apache.iceberg:iceberg-aws-bundle:1.11.0
+      - org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.4
+      - org.apache.spark:spark-avro_2.13:4.0.4
+
+  # Always, because a streaming query is meant to be running. The driver pod
+  # dying is an event to recover from, not a result to report.
+  restartPolicy:
+    type: Always
+    onFailureRetryInterval: 10
+    onSubmissionFailureRetryInterval: 20
+
+  sparkConf:
+    spark.sql.shuffle.partitions: "2"
+    # Executors run the image's venv, not the base image's Python 3.10. The
+    # image already exports these; spark-submit does not inherit them into the
+    # executor pod spec, so they are stated again where Spark will read them.
+    spark.pyspark.python: /app/.venv/bin/python
+    spark.pyspark.driver.python: /app/.venv/bin/python
+
+  # No dynamic allocation here, deliberately. Executors hold state store
+  # partitions for the join; removing one forces its state to be reloaded
+  # elsewhere, and a continuous query has no idle period for that to be free.
+  # The batch job is where scaling belongs.
+  driver:
+    cores: 1
+    memory: 1024m
+    serviceAccount: spark
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 185
+      runAsGroup: 185
+      # A provisioned volume's ownership is not guaranteed to match the pod's
+      # uid. fsGroup is how you ask the kubelet to make it group-writable, and
+      # the cost of omitting it is a permission error from inside the state
+      # store on the first trigger rather than anything at startup. Some
+      # provisioners, kind's local-path among them, hand back a world-writable
+      # directory and would have worked without it.
+      fsGroup: 185
+    env: &joboptions
+      - { name: ICEBERG_WAREHOUSE, value: "s3://warehouse/" }
+      - { name: ICEBERG_URI, value: "http://iceberg-rest:8181" }
+      - { name: S3_ENDPOINT, value: "http://minio:9000" }
+      - { name: AWS_REGION, value: "us-east-1" }
+      - { name: KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+      - { name: SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081" }
+    envFrom: &jobsecrets
+      - secretRef: { name: pipeline-credentials }
+    volumeMounts: &checkpointmount
+      - { name: checkpoint, mountPath: /var/lib/pipeline/checkpoints }
+
+  executor:
+    instances: 2
+    cores: 1
+    memory: 1024m
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 185
+      runAsGroup: 185
+      fsGroup: 185
+    env: *joboptions
+    envFrom: *jobsecrets
+    # Executors write the state store, so they need the checkpoint too. This
+    # mount is what makes the single-node assumption in kind.yaml load-bearing:
+    # ReadWriteOnce is one node, and every pod here lands on the only one.
+    volumeMounts: *checkpointmount
+
+  volumes:
+    - name: checkpoint
+      persistentVolumeClaim:
+        claimName: pipeline-checkpoint

@@ -1,0 +1,86 @@
+# The batch join, on a schedule. Same image, same entry point, same code - the
+# mode flag is the only difference, which is the claim the whole project exists
+# to make good on.
+apiVersion: sparkoperator.k8s.io/v1beta2
+kind: ScheduledSparkApplication
+metadata:
+  name: pipeline-batch
+  namespace: pipeline
+spec:
+  # Every ten minutes, so the demo shows something without waiting a day.
+  schedule: "*/10 * * * *"
+  timeZone: UTC
+
+  # A run that has not finished when the next is due means the previous one is
+  # slow or stuck. Starting a second would have two drivers writing the same
+  # Iceberg table and racing for the same commit.
+  concurrencyPolicy: Forbid
+  successfulRunHistoryLimit: 3
+  failedRunHistoryLimit: 3
+
+  template:
+    type: Python
+    pythonVersion: "3"
+    mode: cluster
+    sparkVersion: 4.0.4
+
+    image: pipeline:local
+    imagePullPolicy: IfNotPresent
+
+    mainApplicationFile: local:///app/.venv/lib/python3.12/site-packages/pipeline/main.py
+    arguments:
+      - --mode
+      - batch
+
+    deps:
+      packages:
+        - org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0
+        - org.apache.iceberg:iceberg-aws-bundle:1.11.0
+
+    # Never, not Always. A batch run that fails has a next scheduled attempt
+    # ten minutes away; restarting it in place would race that attempt and
+    # hide the failure from the run history above.
+    restartPolicy:
+      type: Never
+
+    sparkConf:
+      spark.sql.shuffle.partitions: "2"
+      spark.pyspark.python: /app/.venv/bin/python
+      spark.pyspark.driver.python: /app/.venv/bin/python
+
+    dynamicAllocation:
+      enabled: true
+      initialExecutors: 1
+      minExecutors: 1
+      maxExecutors: 4
+      shuffleTrackingEnabled: true
+      # Seconds an executor holding shuffle data may stay idle. Too low and
+      # stages recompute; too high and the job pays for executors doing nothing.
+      shuffleTrackingTimeout: 60
+
+    driver:
+      cores: 1
+      memory: 1024m
+      serviceAccount: spark
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      env: &joboptions
+        - { name: ICEBERG_WAREHOUSE, value: "s3://warehouse/" }
+        - { name: ICEBERG_URI, value: "http://iceberg-rest:8181" }
+        - { name: S3_ENDPOINT, value: "http://minio:9000" }
+        - { name: AWS_REGION, value: "us-east-1" }
+      envFrom: &jobsecrets
+        - secretRef: { name: pipeline-credentials }
+
+    # No checkpoint mount: a batch job has no state to carry between runs.
+    executor:
+      cores: 1
+      memory: 1024m
+      podSecurityContext:
+        runAsNonRoot: true
+        runAsUser: 185
+        runAsGroup: 185
+      env: *joboptions
+      envFrom: *jobsecrets
