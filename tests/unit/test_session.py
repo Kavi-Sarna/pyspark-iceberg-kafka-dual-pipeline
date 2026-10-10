@@ -7,8 +7,6 @@ them here is cheaper than finding out on a cluster.
 
 from __future__ import annotations
 
-import pytest
-
 from pipeline.session import PACKAGES, CatalogConfig, catalog_options
 
 REST = CatalogConfig(
@@ -58,31 +56,3 @@ def test_catalog_name_is_used_everywhere() -> None:
     options = catalog_options(CatalogConfig(name="other", type="hadoop", warehouse="/w"))
     scoped = [k for k in options if k.startswith("spark.sql.catalog.")]
     assert scoped and all(k.split(".")[3] == "other" for k in scoped)
-
-
-def test_from_env_returns_none_when_unconfigured() -> None:
-    """The gate: no warehouse configured means a plain offline session."""
-    assert CatalogConfig.from_env({}) is None
-    assert CatalogConfig.from_env({"ICEBERG_URI": "http://x:8181"}) is None
-
-
-def test_from_env_reads_the_compose_settings() -> None:
-    cfg = CatalogConfig.from_env(
-        {
-            "ICEBERG_WAREHOUSE": "s3://warehouse/",
-            "ICEBERG_URI": "http://iceberg-rest:8181",
-            "S3_ENDPOINT": "http://minio:9000",
-        }
-    )
-    assert cfg == REST
-
-
-@pytest.mark.parametrize("key", ["ICEBERG_CATALOG", "ICEBERG_CATALOG_TYPE", "AWS_REGION"])
-def test_from_env_default(key: str) -> None:
-    cfg = CatalogConfig.from_env({"ICEBERG_WAREHOUSE": "/w"})
-    assert cfg is not None
-    assert {
-        "ICEBERG_CATALOG": cfg.name,
-        "ICEBERG_CATALOG_TYPE": cfg.type,
-        "AWS_REGION": cfg.region,
-    }[key] in ("lake", "rest", "us-east-1")

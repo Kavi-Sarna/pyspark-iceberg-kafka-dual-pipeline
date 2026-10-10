@@ -24,6 +24,7 @@ from typing import Any
 
 import fastavro
 
+from pipeline.config import AppConfig
 from pipeline.streams import DELIVERIES, SHIPMENTS, TOPICS, StreamConfig, schema_id, subject_for
 
 log = logging.getLogger("pipeline.producer")
@@ -150,7 +151,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = parse_args(argv)
 
-    cfg = StreamConfig.from_env()
+    cfg = AppConfig.load().kafka
     if cfg is None:
         log.error("no Kafka configured; set KAFKA_BOOTSTRAP_SERVERS")
         return 1

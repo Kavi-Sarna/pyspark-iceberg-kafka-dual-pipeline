@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import urllib.error
 import urllib.request
 from collections.abc import Mapping
@@ -44,18 +43,6 @@ REPLICATION = 1
 class StreamConfig:
     bootstrap_servers: str
     schema_registry: str
-
-    @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> StreamConfig | None:
-        """None when Kafka is not configured, so batch-only runs ignore it."""
-        e = os.environ if env is None else env
-        servers = e.get("KAFKA_BOOTSTRAP_SERVERS")
-        if not servers:
-            return None
-        return cls(
-            bootstrap_servers=servers,
-            schema_registry=e.get("SCHEMA_REGISTRY_URL", "http://schema-registry:8081"),
-        )
 
 
 def subject_for(topic: str) -> str:

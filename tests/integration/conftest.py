@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 from pyspark.sql import SparkSession
 
+from pipeline.config import AppConfig, StreamSettings, Tables
 from pipeline.session import STREAM_PACKAGES, CatalogConfig, build_session
 
 CATALOG = "lake"
@@ -46,3 +47,14 @@ def iceberg(warehouse: Path) -> Iterator[SparkSession]:
     session.conf.set("spark.sql.shuffle.partitions", "1")
     yield session
     session.stop()
+
+
+@pytest.fixture(scope="session")
+def tables() -> Tables:
+    """The packages defaults, so tests and the job agree on table names."""
+    return AppConfig.load(env={}).tables
+
+
+@pytest.fixture(scope="session")
+def settings() -> StreamSettings:
+    return AppConfig.load(env={}).stream

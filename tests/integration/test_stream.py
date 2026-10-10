@@ -18,6 +18,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.avro.functions import from_avro
 from pyspark.sql.types import StringType, StructField, StructType, TimestampType
 
+from pipeline.config import AppConfig
 from pipeline.core.join import JoinSpec, left_join
 from pipeline.core.schemas import JOIN_KEY
 from pipeline.io.kafka import HEADER_BYTES, decode
@@ -27,7 +28,8 @@ from pipeline.streams import load_schema
 
 from .conftest import CATALOG
 
-LATENESS = "10 minutes"
+SETTINGS = AppConfig.load(env={}).stream
+SETTINGS_SPEC = stream.spec_for(SETTINGS)
 
 
 def events(spark: SparkSession, time_column: str) -> DataFrame:
@@ -41,7 +43,7 @@ def events(spark: SparkSession, time_column: str) -> DataFrame:
             F.lit("carrier-a").alias("carrier"),
             F.col("timestamp").alias(time_column),
         )
-        .withWatermark(time_column, LATENESS)
+        .withWatermark(time_column, SETTINGS.lateness)
     )
 
 
@@ -105,7 +107,7 @@ def test_the_bounded_spec_plans(iceberg: SparkSession) -> None:
     left = events(iceberg, "dispatch_time")
     right = events(iceberg, "delivered_time")
 
-    query = left_join(left, right, stream.SPEC).writeStream.format("noop").start()
+    query = left_join(left, right, SETTINGS_SPEC).writeStream.format("noop").start()
     try:
         assert query.isActive
     finally:
@@ -117,8 +119,8 @@ def test_the_batch_spec_is_the_one_without_a_bound(iceberg: SparkSession) -> Non
     from pipeline.runner import batch
 
     assert batch.SPEC.max_lag is None
-    assert stream.SPEC.max_lag is not None
-    assert batch.SPEC.keys == stream.SPEC.keys
+    assert SETTINGS_SPEC.max_lag is not None
+    assert batch.SPEC.keys == SETTINGS_SPEC.keys
 
 
 def test_streaming_sources_are_always_nullable(iceberg: SparkSession, tmp_path: Path) -> None:

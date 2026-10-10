@@ -19,6 +19,7 @@ from pathlib import Path
 
 from pyspark.sql import SparkSession
 
+from pipeline.config import AppConfig, StreamSettings
 from pipeline.core.join import left_join
 from pipeline.core.schemas import DELIVERY, SHIPMENT
 from pipeline.runner import stream
@@ -34,9 +35,10 @@ def at(minutes: int) -> datetime:
 
 
 class Demo:
-    def __init__(self, spark: SparkSession, root: Path) -> None:
+    def __init__(self, spark: SparkSession, root: Path, settings: StreamSettings) -> None:
         self.spark = spark
         self.root = root
+        self.settings = settings
         # Empty frames only, to create the directories a file source needs.
         self.add_shipments()
         self.add_deliveries()
@@ -57,16 +59,16 @@ class Demo:
             self.spark.readStream.schema(SHIPMENT)
             .parquet(str(self.root / "shipments"))
             .dropna()
-            .withWatermark("dispatch_time", stream.LATENESS)
+            .withWatermark("dispatch_time", self.settings.lateness)
         )
         deliveries = (
             self.spark.readStream.schema(DELIVERY)
             .parquet(str(self.root / "deliveries"))
             .dropna()
-            .withWatermark("delivered_time", stream.LATENESS)
+            .withWatermark("delivered_time", self.settings.lateness)
         )
         query = (
-            left_join(shipments, deliveries, stream.SPEC)
+            left_join(shipments, deliveries, stream.spec_for(self.settings))
             .writeStream.format("parquet")
             .outputMode("append")
             .option("path", str(self.root / "out"))
@@ -116,9 +118,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     spark.sparkContext.setLogLevel("ERROR")
     spark.conf.set("spark.sql.shuffle.partitions", "2")
     try:
-        demo = Demo(spark, root)
+        settings = AppConfig.load().stream
+        demo = Demo(spark, root, settings)
 
-        print(f"\nlateness {stream.LATENESS}, bound {stream.SPEC.max_lag}")
+        print(f"\nlateness {settings.lateness}, bound {settings.max_lag}")
 
         demo.add_shipments(("shp-2", "carrier-b", at(5)))
         demo.advance()
