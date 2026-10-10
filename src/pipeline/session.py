@@ -7,7 +7,7 @@ configuration is the part that differs most between a laptop, CI and a cluster.
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from pyspark.sql import SparkSession
@@ -90,6 +90,7 @@ def build_session(
     app_name: str = "pipeline",
     catalog: CatalogConfig | None = None,
     extra_packages: Sequence[str] = (),
+    event_options: Mapping[str, str] | None = None,
 ) -> SparkSession:
     """Build a session, defaulting to local[*] only when nothing else decides."""
     builder = SparkSession.builder
@@ -97,6 +98,8 @@ def build_session(
         builder = builder.appName(app_name).master("local[*]")
 
     options = dict(catalog_options(catalog)) if catalog is not None else {}
+    if event_options:
+        options.update(event_options)
     # One comma-separated string, so the streaming jars have to be merged with
     # the catalog's rather than set alongside them.
     packages = [p for p in (options.get("spark.jars.packages"), *extra_packages) if p]

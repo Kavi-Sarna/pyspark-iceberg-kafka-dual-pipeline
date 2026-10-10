@@ -8,7 +8,7 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 14 - one artifact, two modes.** The same image runs batch or stream from a flag, and everything either needs is read from `conf/app.toml`, a layered with an override file and the environment.
+> **Status: PR 15 - event logs, bounded.** One image runs either mode from a flag, configuration is layered and read once, and a long-running query's event log now rolls *and* gets pruned rather than growing for as long as the query lives.
 > 
 > See [Status](#status).
 
@@ -44,7 +44,7 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 | Batch path on Iceberg          | 7-9   | **done**             |
 | Streaming path on Kafka        | 10-13 | **done**             |
 | One artifact, two modes        | 14    | **done**             |
-| Observability and Kubernetes   | 15-17 | - |
+| Observability and Kubernetes   | 15-17 | **PR 15 done**       |
 | Operational drills             | 18    | - |
 
 
@@ -213,5 +213,6 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-12-walkthrough.md`](docs/pr-12-walkthrough.md) - the streaming join: why watermarks are not enough. and the five bytes that corrupt silently
 - [`docs/pr-13-walkthrough.md`](docs/pr-13-walkthrough.md) - the watermark experiment as a test, and looking inside the state store
 - [`docs/pr-14-walkthrough.md`](docs/pr-14-walkthrough.md) - layered configuration, and why the two absent keys are the switches
+- [`docs/pr-15-walkthrough.md`](docs/pr-15-walkthrough.md) - event logs: rolling is already on, retention is what actually bounds
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

@@ -108,3 +108,55 @@ def test_durations_parse(text: str, expected: timedelta) -> None:
 def test_a_bad_duration_fails_loudly(text: str) -> None:
     with pytest.raises(ValueError, match="duration"):
         parse_duration(text)
+
+
+def test_event_logging_is_off_until_a_directory_exists() -> None:
+    """Spark refuses to start if the event log directory is missing, so the
+    packaged default cannot be on: a bare run would depend on a path nobody
+    created. The Compose stack turns it on, where the volume is."""
+    assert not AppConfig.load(env={}).events.enabled
+    assert AppConfig.load(env={"EVENT_LOG_ENABLED": "true"}).events.enabled
+
+
+def test_rolling_is_set_explicitly_even_though_spark_4_defaults_to_it() -> None:
+    """Spark 4 rolls by default; saying so keeps the file honest about what
+    the job does rather than relying on a default that moved once already."""
+    options = AppConfig.load(env={"EVENT_LOG_ENABLED": "true"}).events.spark_options()
+    assert options["spark.eventLog.rolling.enabled"] == "true"
+    assert options["spark.eventLog.rolling.maxFileSize"] == "128m"
+
+
+def test_retention_is_bounded() -> None:
+    """The setting that actually limits disk.
+
+    Spark's default for maxFilesToRetain is Int.MaxValue, so every part file
+    is kept forever and rolling alone bounds nothing. A streaming query runs
+    for weeks.
+    """
+    history = AppConfig.load(env={}).events.history_options()
+    assert int(history["spark.history.fs.eventLog.rolling.maxFilesToRetain"]) == 20
+
+
+def test_the_history_server_reads_where_the_job_writes() -> None:
+    """One value, two settings. Writing the path twice is how they diverge
+    and the History Server quietly shows nothing."""
+    events = AppConfig.load(env={"EVENT_LOG_ENABLED": "true"}).events
+    assert (
+        events.spark_options()["spark.eventLog.dir"]
+        == (events.history_options()["spark.history.fs.logDirectory"])
+    )
+
+
+def test_the_event_log_directory_is_overridable() -> None:
+    events = AppConfig.load(env={"EVENT_LOG_DIR": "s3a://warehouse/spark-events"}).events
+    assert events.dir == "s3a://warehouse/spark-events"
+    assert events.history_options()["spark.history.fs.logDirectory"] == events.dir
+
+
+def test_disabling_it_says_so_rather_than_omitting_it() -> None:
+    """An absent spark.eventLog.enabled means 'whatever the cluster default
+    is'. False means false."""
+    import dataclasses
+
+    events = dataclasses.replace(AppConfig.load(env={}).events, enabled=False)
+    assert events.spark_options() == {"spark.eventLog.enabled": "false"}
