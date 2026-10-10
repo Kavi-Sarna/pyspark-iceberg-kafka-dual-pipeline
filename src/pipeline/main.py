@@ -52,7 +52,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     # The Kafka and Avro jars are only fetched when streaming, so a batch run
     # does not pay for them.
     extra = (STREAM_PACKAGES,) if args.mode == "stream" else ()
-    spark = build_session(catalog=catalog, extra_packages=extra)
+    spark = build_session(
+        catalog=catalog, extra_packages=extra, event_options=app.events.spark_options()
+    )
     spark.sparkContext.setLogLevel("WARN")
     try:
         log.info("master  %s", spark.sparkContext.master)

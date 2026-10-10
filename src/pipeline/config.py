@@ -65,9 +65,47 @@ class StreamSettings:
 
 
 @dataclass(frozen=True)
+class EventLog:
+    """What the History Server will have to read later."""
+
+    enabled: bool
+    dir: str
+    rolling: bool
+    max_file_size: str
+    compression: str
+    retain_files: int
+    compaction_threshold: float
+
+    def spark_options(self) -> dict[str, str]:
+        """Driver-side settings. The retention ones are read by the History
+        Server, not by the job, but they belong with the rest."""
+        if not self.enabled:
+            return {"spark.eventLog.enabled": "false"}
+        return {
+            "spark.eventLog.enabled": "true",
+            "spark.eventLog.dir": self.dir,
+            "spark.eventLog.rolling.enabled": str(self.rolling).lower(),
+            "spark.eventLog.rolling.maxFileSize": self.max_file_size,
+            "spark.eventLog.compress": "true",
+            "spark.eventLog.compression.codec": self.compression,
+        }
+
+    def history_options(self) -> dict[str, str]:
+        """What the History Server needs to stop keeping everything."""
+        return {
+            "spark.history.fs.logDirectory": self.dir,
+            "spark.history.fs.eventLog.rolling.maxFilesToRetain": str(self.retain_files),
+            "spark.history.fs.eventLog.rolling.compaction.score.threshold": str(
+                self.compaction_threshold
+            ),
+        }
+
+
+@dataclass(frozen=True)
 class AppConfig:
     tables: Tables
     stream: StreamSettings
+    events: EventLog
     catalog: CatalogConfig | None
     kafka: StreamConfig | None
 
@@ -89,12 +127,28 @@ class AppConfig:
             trigger=raw_stream["trigger"],
             checkpoint=e.get("CHECKPOINT_LOCATION", raw_stream["checkpoint"]),
         )
+        raw_events = dict(data["events"])
+        events = EventLog(
+            enabled=_flag(e, "EVENT_LOG_ENABLED", bool(raw_events["enabled"])),
+            dir=e.get("EVENT_LOG_DIR", raw_events["dir"]),
+            rolling=bool(raw_events["rolling"]),
+            max_file_size=raw_events["max_file_size"],
+            compression=raw_events["compression"],
+            retain_files=int(raw_events["retain_files"]),
+            compaction_threshold=float(raw_events["compaction_threshold"]),
+        )
         return cls(
             tables=tables,
+            events=events,
             stream=stream,
             catalog=_catalog(data["catalog"], e),
             kafka=_kafka(data["kafka"], e),
         )
+
+
+def _flag(e: Mapping[str, str], key: str, default: bool) -> bool:
+    raw = e.get(key)
+    return default if raw is None else raw.strip().lower() in {"1", "true", "yes"}
 
 
 def _packaged() -> dict[str, Any]:

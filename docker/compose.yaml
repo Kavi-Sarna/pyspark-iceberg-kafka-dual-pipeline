@@ -61,6 +61,10 @@ services:
     environment:
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=/tmp/spark-events
+        -Dspark.history.fs.eventLog.rolling.maxFilesToRetain=20
+        -Dspark.history.fs.eventLog.rolling.compaction.score.threshold=0.7
+        -Dspark.history.fs.cleaner.enabled=true
+        -Dspark.history.fs.cleaner.maxAge=7d
     volumes:
       - spark-events:/tmp/spark-events
     ports:
