@@ -34,7 +34,7 @@ export PYSPARK_DRIVER_PYTHON := $(CURDIR)/.venv/bin/python
 # for local and unit-test runs; a cluster submit sets its own bind address.
 export SPARK_LOCAL_IP := 127.0.0.1
 
-.PHONY: help env sync fmt lint types test test-integration ci run image image-run up down submit smoke bootstrap warehouse scan clean k8s-validate kind-up kind-load k8s-up k8s-stream k8s-batch k8s-logs k8s-ui k8s-down kind-down stream-clean clean-checkpoints
+.PHONY: help env sync fmt lint types test test-integration drills ci run image image-run up down submit smoke bootstrap warehouse scan clean k8s-validate kind-up kind-load k8s-up k8s-stream k8s-batch k8s-logs k8s-ui k8s-down kind-down stream-clean clean-checkpoints
 
 help: ## Show this help
 	@grep -hE '^[a-z0-9-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -69,6 +69,9 @@ test: env ## Run the unit tests
 
 test-integration: env ## Real Iceberg tables in a temp directory. Own process
 	uv run pytest tests/integration -q
+
+drills: env ## Run the operational drills and name each one as it passes
+	uv run pytest tests/integration/test_drills.py -v
 
 ci: ## Run everything CI runs
 	./ci/run.sh
