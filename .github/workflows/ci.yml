@@ -5,29 +5,115 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build:
+  # -------------------------------------------------------------------------
+  # Job 1: In-memory static checks and unit tests (<1 min, minimal RAM)
+  # -------------------------------------------------------------------------
+  fast-checks:
+    name: Lint, Types & Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       # Yes, a Python project needs a JDK: pyspark starts a JVM. Leaving this 
       # out is the mistake unique to a Python Spark project - it works locally
       # where a JDK happens to exist, then fails here with a gateway error that 
       # never mentions Java.
-      - uses: actions/setup-java@v4
+      - name: Install Java 21 (Temurin)
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
       
-      - uses: astral-sh/setup-uv@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-depepndency-glob: uv.lock
+          cache-dependency-glob: uv.lock
       
       # One command. Everything it runs is reproducible locally with `make ci`.
       # REQUIRE_DOCKER makes the image build a hard failure here; locally the 
       # script skips it with a warning when no daemon is running.
-      - run: ./ci/run.sh
+      - name: Run CI Contract (Unit tests, Build, Compose smoke)
+        run: ./ci/run.sh
+        env:
+          REQUIRE_DOCKER: '0'
+  
+  # -------------------------------------------------------------------------
+  # Job 2: Compose stack smoke test & integration tests (Isolated Docker Host)
+  # -------------------------------------------------------------------------
+  compose-smoke:
+    name: Docker Compose Stack
+    needs: fast-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Java 21 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Build image and run Compose smoke test
+        run: ./ci/smoke.sh
         env:
           REQUIRE_DOCKER: '1'
+
+      - name: Run Integration Tests (Real Iceberg & Testcontainers Kafka)
+        run: uv run pytest tests/integration -q
+
+      - name: Dump Compose logs on failure
+        if: failure()
+        run: docker compose -f docker/compose.yaml logs --tail=100
+
+  # -------------------------------------------------------------------------
+  # Job 3: Kubernetes Kind cluster & Spark Operator (Dedicated 7 GB Runner)
+  # -------------------------------------------------------------------------
+  k8s-smoke:
+    name: Kind Cluster & Spark Operator
+    needs: fast-checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space on runner
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          df -h
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Run K8s Manifest Validation & Cluster Smoke Test
+        run: ./ci/k8s.sh --cluster
+
+      - name: Dump cluster diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n pipeline get all
+          kubectl -n pipeline describe pods
+          kubectl -n pipeline logs -l spark-role=driver --all-containers=true --tail=100 || true
