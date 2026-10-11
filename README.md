@@ -174,6 +174,20 @@ Every target that touches a cluster refuses to run unless the current kubectl co
 The Services are named `minio`, `iceberg-rest`, `kafka` and `schema-registry` - the Compose service names, which are the hostnames already in the packaged `app.toml`. Nothing about the job's configuration changes between the two.
 
 
+## Running the demo
+
+A six-figure stream, in a browser, with a URL you can share. No local setup:
+
+```bash
+make stream AWAIT_SECONDS=900     # terminal 1
+make load SHIPMENTS=100000        # terminal 2
+```
+
+190,000 records across two topics in about 95 seconds. 10,058 shipments never get a delivery and ~1.9% of deliveries arrive deliberately late, so the output lands at 100,001 rows — 88,210 matched, 11,791 null-padded — and both the left join and the dropped-rows panel have something to show.
+
+Full runbook, including which Codespaces machine to pick and how to make a port public: [`docs/demo.md`](docs/demo.md).
+
+
 ## Running it without installing anything 
 
 Step by step, including how to share a live URL: [`docs/pr-04-1-walkthrough.md`](docs/pr-04-1-walkthrough.md).
@@ -208,6 +222,7 @@ src/pipeline/config.py      all configuration: packages TOML, file, environment
 src/pipeline/conf/          the shipped defaults
 src/pipeline/streams.py     Kafka topics and Schema Registry subjects
 src/pipeline/producer.py    scenarios with fixed event times and explicit pauses
+src/pipeline/load.py        a load generator: six figures, paced, deterministic
 src/pipeline/avro/          the wire contract, as .avsc
 src/pipeline/io/            adapters: iceberg.py, kafka.py
 src/pipeline/runner/        assembly: batch.py, stream.py
@@ -215,6 +230,7 @@ tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 tests/integration/          real Iceberg tables, the watermark experiment, a real broker
 docs/drills.md              six drills: what was done, what happened, why
+docs/demo.md                the runbook for showing it to someone
 ci/run.sh                   the pipeline contract - what "green" means
 ci/k8s.sh                   manifest against the published Kubernetes and operator schemas
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
@@ -253,6 +269,8 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-16-walkthrough.md`](docs/pr-16-walkthrough.md) - streaming metrics: why there is no consumer group to check, and where lag actually lives
 - [`docs/pr-17-walkthrough.md`](docs/pr-17-walkthrough.md) - the Spark Operator: what the executors inhert, and a manifest that validates but cannot run
 - [`docs/pr-18-walkthrough.md`](docs/pr-18-walkthrough.md) - six operational drills, and the schema change that corrupts without an error
+- [`docs/pr-19-walkthrough.md`](docs/pr-19-walkthrough.md) - a demo-scale stream, and why a bounded load leaves a third of its rows in the state store
 - [`docs/drills.md`](docs/drills.md) - the drill results on their own
+- [`docs/demo.md`](docs/demo.md) - the runbook for showing it to someone
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 

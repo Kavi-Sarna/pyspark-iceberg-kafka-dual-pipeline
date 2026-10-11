@@ -308,6 +308,30 @@ services:
         --speed "$${SPEED:-1}"
   
 
+  # Enough records to make the UIs and the dashboards worth looking at.
+  # Separate from `produce` because the two want opposite things: that one is
+  # six records you can read, this one is six figures you can watch.
+  load:
+    <<: *image
+    profiles: ["load"]
+    depends_on:
+      schema-registry:
+        condition: service_healthy
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    command:
+      - /bin/bash
+      - -c
+      - >-
+        exec /app/.venv/bin/python -m pipeline.load
+        --shipments "$${SHIPMENTS:-100000}"
+        --rate "$${RATE:-2000}"
+        --match-rate "$${MATCH_RATE:-0.9}"
+        --late-rate "$${LATE_RATE:-0.02}"
+        --window "$${WINDOW:-2 hours}"
+
+
   # The batch job, submitted to the cluster.
   # 
   # --packages on the submit command, not in the session builder: under 
