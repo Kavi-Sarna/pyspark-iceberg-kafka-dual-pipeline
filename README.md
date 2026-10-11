@@ -8,9 +8,9 @@ One join, written ince, running two ways: as a **batch** job over Apache Iceberg
 
 The worked example is shipments and deliveries. A shipment is dispatched; a delivery event may follow. The question the pipeline answers is which shipments never arrived.
 
-> **Status: PR 17 - the same image, run by kubernetes.** One image runs either mode from a flag, configuration is layered and read once, streaming metrics reach Grafana, and the two modes now deploy to a `kind` cluster through the Spark Operator: a `SparkApplication` for the stream, a `ScheduledSparkApplication` for the batch.
+> **Status: PR 18 - complete.** One image runs either mode from a flag, configuration is layered and read once, streaming metrics reach Grafana, the two modes deploy to a `kind` cluster through the Spark Operator, and six operational drills are recorded with what happened and why.
 > 
-> See [Status](#status).
+> See [Status](#status) and [Drills](docs/drills.md).
 
 ## The idea
 
@@ -37,15 +37,15 @@ The interesting part is where that abstraction leaks: a stream-stream left outer
 
 ## Status
 
-| Phase                          | PRs   | State                |
-| ------------------------------ | ----- | -------------------- |
-| Skeleton on a real cluster     | 1-4   | **done**             |
-| Pure core, no I/O              | 5-6   | **done**             |
-| Batch path on Iceberg          | 7-9   | **done**             |
-| Streaming path on Kafka        | 10-13 | **done**             |
-| One artifact, two modes        | 14    | **done**             |
-| Observability and Kubernetes   | 15-17 | **done**             |
-| Operational drills             | 18    | - |
+| Phase                          | PRs   | State        |
+| ------------------------------ | ----- | ------------ |
+| Skeleton on a real cluster     | 1-4   | **done**     |
+| Pure core, no I/O              | 5-6   | **done**     |
+| Batch path on Iceberg          | 7-9   | **done**     |
+| Streaming path on Kafka        | 10-13 | **done**     |
+| One artifact, two modes        | 14    | **done**     |
+| Observability and Kubernetes   | 15-17 | **done**     |
+| Operational drills             | 18    | **done**     |
 
 
 ## Stack
@@ -146,6 +146,17 @@ Every service runs the image this repo builds, not a stock Spark image, so the c
 `make smoke` is the check behind *`main` is always runnable*: it asserts the job reported the cluster master, and that the master itself recorded a completed application. Exit zero alone would pass even if the job quitely ran locally.
 
 
+## Drills
+
+Six operational questions, answered by running them rather than by reasoning about them: restart a query, delete its checkpoint, change its shape, evolve an Avro schema, compact and expire an Iceberg table, and swap the state store for RocksDB.
+
+```bash
+make drills
+```
+
+Results and reasoning: [`docs/drills.md`](docs/drills.md). Three of them have answers most people guess wrong — deleting a checkpoint duplicates output rather than starting clean, a *required* field added to a writer is invisible to an old reader while an *optional* field added to a reader breaks it, and compaction frees no space at all until snapshots expire.
+
+
 ## Kubernetes
 
 ```bash
@@ -194,7 +205,7 @@ src/pipeline/session.py     entry point's session builder plus catalog config
 src/pipeline/bootstrap.py   creates the namespace and tables from the schemas
 src/pipeline/core/          pure domain logic: schema.py, join.py
 src/pipeline/config.py      all configuration: packages TOML, file, environment
-src/pipeline/conf           the shipped defaults
+src/pipeline/conf/          the shipped defaults
 src/pipeline/streams.py     Kafka topics and Schema Registry subjects
 src/pipeline/producer.py    scenarios with fixed event times and explicit pauses
 src/pipeline/avro/          the wire contract, as .avsc
@@ -203,6 +214,7 @@ src/pipeline/runner/        assembly: batch.py, stream.py
 tests/conftest.py           one session-scoped SparkSession for the suite
 tests/unit/                 no Docker required
 tests/integration/          real Iceberg tables, the watermark experiment, a real broker
+docs/drills.md              six drills: what was done, what happened, why
 ci/run.sh                   the pipeline contract - what "green" means
 ci/k8s.sh                   manifest against the published Kubernetes and operator schemas
 ci/scan.sh                  image vulnerability scan, run nightly not per-PR
@@ -240,5 +252,7 @@ docs/                       per-PR walkthroughs
 - [`docs/pr-15-walkthrough.md`](docs/pr-15-walkthrough.md) - event logs: rolling is already on, retention is what actually bounds
 - [`docs/pr-16-walkthrough.md`](docs/pr-16-walkthrough.md) - streaming metrics: why there is no consumer group to check, and where lag actually lives
 - [`docs/pr-17-walkthrough.md`](docs/pr-17-walkthrough.md) - the Spark Operator: what the executors inhert, and a manifest that validates but cannot run
+- [`docs/pr-18-walkthrough.md`](docs/pr-18-walkthrough.md) - six operational drills, and the schema change that corrupts without an error
+- [`docs/drills.md`](docs/drills.md) - the drill results on their own
 - [Left Join Launchpad](https://gist.github.com/Kavi-Sarna/a06d702eb88946c7c4ab195a15529449) - the full 18-PR roadmap, concept map and traps 
 - [Ground School](https://gist.github.com/Kavi-Sarna/24d6508a6296913cd790e6e3fa4a76b9) - prerequisities, worked exercises and an answer key 
