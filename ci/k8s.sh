@@ -17,6 +17,9 @@ cd "$(dirname "$0")/.."
 K8S_VERSION="${K8S_VERSION:-v1.35.0}"
 OPERATOR_VERSION="${OPERATOR_VERSION:-v2.5.2}"
 
+# -----------------------------------------------------------------------------
+# Phase 1: Schema & Structural Validation (Runs Offline, No Cluster)
+# -----------------------------------------------------------------------------
 uv run --with jsonschema --with pyyaml python - "$K8S_VERSION" "$OPERATOR_VERSION" <<'PY'
 import json
 import pathlib
@@ -92,18 +95,21 @@ def unknown_fields(node, schema, path):
 
 failures = 0
 checked = 0
+
 for path in sorted(pathlib.Path("k8s").glob("*.yaml")):
     if path.name == "kind.yaml":
         # kind publishes no JSON schema for its cluster config.
         yaml.safe_load(path.read_text())
         print(f"{path.name:20} parsed")
         continue
+    
     for doc in yaml.safe_load_all(path.read_text()):
         if not doc:
             continue
         kind = doc["kind"]
         checked += 1
         label = f"{path.name:20} {kind}/{doc['metadata']['name']}"
+
         if kind in CUSTOM:
             schema = crd_schema(kind)
             errors = sorted(Draft7Validator(schema).iter_errors(doc), key=lambda e: list(e.path))
@@ -112,6 +118,7 @@ for path in sorted(pathlib.Path("k8s").glob("*.yaml")):
             schema = builtin_schema(kind, doc["apiVersion"])
             errors = sorted(Draft7Validator(schema).iter_errors(doc), key=lambda e: list(e.path))
             extra = []
+        
         if errors or extra:
             failures += 1
             print(f"{label}  FAIL")
@@ -125,3 +132,66 @@ for path in sorted(pathlib.Path("k8s").glob("*.yaml")):
 print(f"\n{checked} resources, {failures} failed")
 sys.exit(1 if failures else 0)
 PY
+
+# -----------------------------------------------------------------------------
+# Phase 2: Live Cluster Verification (Runs Only When Explicitly Requested)
+# -----------------------------------------------------------------------------
+if [[ "${1:-}" != "--cluster" && "${RUN_CLUSTER:-0}" != "1" ]]; then
+  exit 0
+fi
+
+echo ""
+echo "==> Schemas validated. Starting Kind cluster verification..."
+
+# Check prerequisites
+for bin in docker kind kubectl helm; do
+  if ! command -v "$bin" >/dev/null 2>&1; then
+    echo "ERROR: missing required CLI tool: $bin" >&2
+    echo "       Install it before running the cluster suite (e.g. 'brew install $bin')." >&2
+    exit 1
+  fi
+done
+
+if ! docker info >/dev/null 2>&1; then
+  echo "ERROR: no Docker daemon reachable; start Docker Desktop first." >&2
+  exit 1
+fi
+
+cleanup() {
+  local exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    echo "==> Failure detected (exit code $exit_code). Dumping pod diagnostics..."
+    kubectl -n pipeline get pods -o wide || true
+    echo ""
+    echo "--- Kafka Pod Description ---"
+    kubectl -n pipeline describe pod -l app=kafka || true
+    echo ""
+    echo "--- Kafka Logs (tail 50) ---"
+    kubectl -n pipeline logs -l app=kafka --tail=50 || true
+    echo ""
+    echo "--- Schema Registry Logs (Current) ---"
+    kubectl -n pipeline logs -l app=schema-registry --tail=50 || true
+    echo "--- Schema Registry Logs (Previous Container) ---"
+    kubectl -n pipeline logs -l app=schema-registry --previous --tail=50 || true
+    echo ""
+    echo "--- Spark Operator Logs (tail 50) ---"
+    kubectl -n spark-operator logs -l app.kubernetes.io/name=spark-operator --tail=50 || true
+  fi
+  echo "==> Cleaning up Kind cluster..."
+  make kind-down >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# 1. Build local container and create the kind cluster
+make image
+make kind-up
+
+# 2. Deploy data stack and wait for bootstrap job completion
+make k8s-up
+
+# 3. Submit scheduled batch job and assert scheduleState
+make k8s-batch
+kubectl -n pipeline wait --for=jsonpath='{.status.scheduleState}'=Scheduled scheduledsparkapplication/pipeline-batch --timeout=180s
+echo "==> Schedule registered: $(kubectl -n pipeline get scheduledsparkapplication pipeline-batch -o jsonpath='{.status.scheduleState}')"
+
+echo "==> Kind cluster verification passed."

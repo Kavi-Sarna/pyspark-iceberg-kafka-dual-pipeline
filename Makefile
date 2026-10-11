@@ -147,6 +147,9 @@ OPERATOR_VERSION ?= 2.5.2
 k8s-validate: ## Check the manifests against the published Kubernetes and operator schemas
 	./ci/k8s.sh
 
+k8s-smoke: ## Validate schemas, boot Kind, run operator workloads, and tear down
+	./ci/k8s.sh --cluster
+
 # Every target below applies manifests, and two of them delete things. kind
 # names its context deterministically, so there is no reason to find out
 # afterwards that kubectl was pointed somewhere else.
@@ -163,13 +166,13 @@ endef
 
 kind-up: image ## Create the kind cluster, install the operator, load the image
 	kind create cluster --config k8s/kind.yaml
+	kubectl apply -f k8s/00-namespace.yaml
 	helm repo add spark-operator https://kubeflow.github.io/spark-operator --force-update
 	helm upgrade --install spark-operator spark-operator/spark-operator \
 	  --version $(OPERATOR_VERSION) \
 	  --namespace spark-operator --create-namespace \
 	  --set "spark.jobNamespaces={pipeline}" \
 	  --wait
-	kubectl apply -f k8s/00-namespace.yaml
 	$(MAKE) kind-load
 
 kind-load: image ## Side-load the freshly built image into the cluster nodes
@@ -179,7 +182,9 @@ kind-load: image ## Side-load the freshly built image into the cluster nodes
 k8s-up: ## Start the data stack in the cluster and create topics and tables
 	$(require-kind-context)
 	kubectl apply -f k8s/10-stack.yaml
-	kubectl -n pipeline rollout status deploy/minio deploy/iceberg-rest deploy/kafka deploy/schema-registry --timeout=300s
+	kubectl -n pipeline rollout status deploy/minio deploy/iceberg-rest --timeout=180s
+	kubectl -n pipeline rollout status deploy/kafka --timeout=180s
+	kubectl -n pipeline rollout status deploy/schema-registry --timeout=180s
 	kubectl -n pipeline delete job pipeline-bootstrap --ignore-not-found
 	kubectl apply -f k8s/20-bootstrap.yaml
 	kubectl -n pipeline wait --for=condition=complete job/pipeline-bootstrap --timeout=300s
