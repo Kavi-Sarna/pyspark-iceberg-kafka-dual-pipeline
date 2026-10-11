@@ -174,15 +174,15 @@ spec:
           env:
             - { name: KAFKA_NODE_ID, value: "1" }
             - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
-            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@kafka:9093" }
+            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@localhost:9093" }
             - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
             - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "INTERNAL" }
-            - { name: KAFKA_LISTENERS, value: "INTERNAL://:9092,CONTROLLER://:9093" }
+            - { name: KAFKA_LISTENERS, value: "INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,LOCAL://0.0.0.0:19092" }
             # One listener here, not two. In Compose a second listener existed
             # so the host could reach the broker; in-cluster there is no host,
             # and `kubectl port-forward` reaches 9092 directly.
-            - { name: KAFKA_ADVERTISED_LISTENERS, value: "INTERNAL://kafka:9092" }
-            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT" }
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "INTERNAL://kafka:9092,LOCAL://localhost:19092" }
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT,LOCAL:PLAINTEXT" }
             # One broker cannot replicate anything, so every internal topic must
             # ask for one copy. The defaults ask for three and it refuses.
             - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1" }
@@ -194,10 +194,10 @@ spec:
             - { containerPort: 9092, name: internal }
           readinessProbe:
             exec:
-              command: ["/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:9092", "--list"]
+              command: ["/opt/kafka/bin/kafka-topics.sh", "--bootstrap-server", "localhost:19092", "--list"]
             initialDelaySeconds: 10
             periodSeconds: 5
-            timeoutSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 30
           volumeMounts:
             - { name: data, mountPath: /var/lib/kafka/data }
@@ -212,6 +212,7 @@ metadata:
   name: kafka
   namespace: pipeline
 spec:
+  publishNotReadyAddresses: true
   selector: { app: kafka }
   ports:
     - { name: internal, port: 9092, targetPort: 9092 }
@@ -231,20 +232,28 @@ spec:
     metadata:
       labels: { app: schema-registry }
     spec:
+      enableServiceLinks: false
       containers:
         - name: schema-registry
           image: confluentinc/cp-schema-registry:7.9.10@sha256:ae63c314e3f78f78d5bdce8c64c0f98ea1dc4d358ef52de2fdae56cda7e82ec0
           env:
             - { name: SCHEMA_REGISTRY_HOST_NAME, value: "schema-registry" }
-            - { name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "PLAINTEXT://kafka:9092" }
             - { name: SCHEMA_REGISTRY_LISTENERS, value: "http://0.0.0.0:8081" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "PLAINTEXT://kafka:9092" }
             - { name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR, value: "1" }
+            # Single-node KRaft safeguards:
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC, value: "_schemas" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_INIT_TIMEOUT_MS, value: "60000" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_TIMEOUT_MS, value: "10000" }
+            # Override injected Kubernetes Service env var that triggers the deprecation trap:
+            - { name: PORT, value: "" }
           ports:
             - { containerPort: 8081, name: http }
           readinessProbe:
             httpGet: { path: /subjects, port: 8081 }
-            initialDelaySeconds: 10
+            initialDelaySeconds: 15
             periodSeconds: 5
+            timeoutSeconds: 5
             failureThreshold: 30
 
 ---
