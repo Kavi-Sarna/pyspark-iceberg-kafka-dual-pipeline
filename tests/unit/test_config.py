@@ -76,7 +76,7 @@ def test_an_override_file_wins_over_the_packaged_one(tmp_path: Path) -> None:
     assert app.stream.max_lag == timedelta(minutes=5)
     # Untouched sections survive the merge rather than being replaced.
     assert app.tables.namespace == "ops"
-    assert app.stream.trigger == "10 seconds"
+    assert app.stream.trigger == "15 seconds"
 
 
 def test_the_environment_wins_over_both(tmp_path: Path) -> None:
