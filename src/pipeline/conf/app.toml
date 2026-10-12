@@ -33,7 +33,7 @@ lateness = "10 minutes"
 # The time-range bound. A stream-stream left outer join will not plan without
 # one; batch leaves it unset.
 max_lag = "30 minutes"
-trigger = "10 seconds"
+trigger = "15 seconds"
 checkpoint = "/var/lib/pipeline/checkpoints/stream"
 
 [events]
