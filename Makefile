@@ -133,10 +133,20 @@ produce: bootstrap ## Send a scenario to Kafka. SCENARIO=matched|unmatched|advan
 batch: bootstrap ## Run the batch job on the cluster, writing to Iceberg
 	docker compose -f docker/compose.yaml run --rm batch
 
+SHIPMENTS  ?= 100000
+RATE       ?= 200
+MATCH_RATE ?= 0.9
+LATE_RATE  ?= 0.02
+WINDOW     ?= 2 hours
+
 load: bootstrap ## Push a demo-sized stream. SHIPMENTS=100000 RATE=2000 WINDOW="2 hours"
-	SHIPMENTS=$(SHIPMENTS) RATE=$(RATE) MATCH_RATE=$(MATCH_RATE) \
-	LATE_RATE=$(LATE_RATE) WINDOW=$(WINDOW) \
-	  docker compose -f docker/compose.yaml run --rm load
+	docker compose -f docker/compose.yaml run --rm load \
+		/app/.venv/bin/python -m pipeline.load \
+		--shipments $(SHIPMENTS) \
+		--rate $(RATE) \
+		--match-rate $(MATCH_RATE) \
+		--late-rate $(LATE_RATE) \
+		--window "$(WINDOW)"
 
 stream: bootstrap ## Run the streaming job. AWAIT_SECONDS=60 to stop after a minute
 	AWAIT_SECONDS=$(AWAIT_SECONDS) \
